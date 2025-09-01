@@ -5,6 +5,13 @@
 #include "Actors/MirroredPlayer.h"
 #include "Components/PoseUdpReceiverComponent.h"
 
+inline float HalfLifeToAlpha(float HalfLife, float DeltaTime)
+{
+    if (HalfLife <= KINDA_SMALL_NUMBER) return 1.f;
+    const float k = 0.69314718056f; // ln(2)
+    return 1.f - FMath::Exp(-k * DeltaTime / HalfLife);
+}
+
 void ASword::BeginPlay()
 {
 	Super::BeginPlay();
@@ -180,15 +187,20 @@ bool ASword::TryComputeSwordPoseFromPose(const FVector2f& Pelvis2D, const FPerso
 
 void ASword::SetSwordPos(FVector DirWorld, FVector CenterWorld)
 {
+    // 무기 표시 조건 체크
     if (!OwningPlayer || OwningPlayer->GetCurrentWeapon() != EWeaponState::Sword)
     {
         HideWeapon();
+        bHasSmoothedState = false; // 상태 리셋
         return;
     }
 
-    FVector YAxis = DirWorld.GetSafeNormal();
-    if (YAxis.IsNearlyZero()) return;
+    // 방향이 불안정하면 업데이트 보류(진동 방지)
+    const FVector YAxis = DirWorld.GetSafeNormal();
+    if (YAxis.IsNearlyZero() || FVector::DotProduct(YAxis, YAxis) < MinDirDotToUpdate)
+        return;
 
+    // 타깃 회전 계산(기존 로직 그대로, 단 최종은 FQuat로)
     FVector WorldUp = FVector::UpVector;
     FVector ZAxis = FVector::CrossProduct(YAxis, WorldUp).GetSafeNormal();
     if (ZAxis.IsNearlyZero())
@@ -197,10 +209,64 @@ void ASword::SetSwordPos(FVector DirWorld, FVector CenterWorld)
         ZAxis = FVector::CrossProduct(YAxis, WorldUp).GetSafeNormal();
     }
     const FVector XAxis = FVector::CrossProduct(ZAxis, YAxis).GetSafeNormal();
-
     const FMatrix RotMatrix(XAxis, YAxis, ZAxis, FVector::ZeroVector);
-    const FRotator NewRot = RotMatrix.Rotator();
-    SetActorLocationAndRotation(CenterWorld, NewRot);
+    const FQuat   TargetRot = FQuat(RotMatrix);
 
+    const float dt = GetWorld() ? GetWorld()->GetDeltaSeconds() : (1.f / 60.f);
+
+    // 최초 프레임은 바로 스냅
+    if (!bHasSmoothedState)
+    {
+        SmoothedCenter = CenterWorld;
+        SmoothedRot = TargetRot;
+        bHasSmoothedState = true;
+        SetActorLocationAndRotation(SmoothedCenter, SmoothedRot);
+        ShowWeapon();
+        return;
+    }
+
+    // --- 텔레포트 감지(큰 점프는 바로 스냅해서 순간이동 느낌 제거) ---
+    const float distJump = FVector::Dist(SmoothedCenter, CenterWorld);
+    if (distJump > TeleportDistThreshold)
+    {
+        SmoothedCenter = CenterWorld;
+        SmoothedRot = TargetRot;
+        SetActorLocationAndRotation(SmoothedCenter, SmoothedRot);
+        ShowWeapon();
+        return;
+    }
+
+    // --- 지수 평활(half-life) ---
+    const float aPos = HalfLifeToAlpha(PosHalfLife, dt);
+    const float aRot = HalfLifeToAlpha(RotHalfLife, dt);
+
+    // 위치: 지수평활 후 속도 클램프(최대 이동량 제한)
+    FVector desired = FMath::Lerp(SmoothedCenter, CenterWorld, aPos);
+    FVector step = desired - SmoothedCenter;
+    const float maxStep = MaxPosSpeedUUps * dt;
+    if (step.Size() > maxStep)
+        step = step.GetClampedToMaxSize(maxStep);
+    SmoothedCenter += step;
+
+    // 회전: Slerp 후 각속도 클램프
+    // 먼저 half-life 기반 Slerp
+    FQuat slerped = FQuat::Slerp(SmoothedRot, TargetRot, aRot);
+    slerped.Normalize();
+
+    // 각속도 제한(프레임당 이동 가능한 최대 각도)
+    const float maxAngleRad = FMath::DegreesToRadians(MaxAngularSpeedDegPs) * dt;
+    const float wantAngleRad = SmoothedRot.AngularDistance(TargetRot);
+    if (wantAngleRad > maxAngleRad + KINDA_SMALL_NUMBER)
+    {
+        const float t = maxAngleRad / wantAngleRad;
+        SmoothedRot = FQuat::Slerp(SmoothedRot, TargetRot, t);
+    }
+    else
+    {
+        SmoothedRot = slerped;
+    }
+    SmoothedRot.Normalize();
+
+    SetActorLocationAndRotation(SmoothedCenter, SmoothedRot);
     ShowWeapon();
 }

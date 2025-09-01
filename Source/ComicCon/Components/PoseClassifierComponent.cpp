@@ -688,10 +688,10 @@ void UPoseClassifierComponent::ApplySwingPlaneSweepDamage(const TArray<const FTi
     const FVector HalfExtent(PlaneHalfThickness, PlaneHalfSize.X, PlaneHalfSize.Y);
     TSet<AActor*> UniqueActors;
 
-    // 발사 유틸
-    auto SpawnProjectile = [&](const FVector& SpawnLoc, const FVector& DirWorld)
+    // ★★★ CHANGED: 발사 유틸 - 클래스 인자를 받도록 일반화
+    auto SpawnProjectile = [&](TSubclassOf<AActor> InClass, const FVector& SpawnLoc, const FVector& DirWorld)
         {
-            if (!ProjectileClass) return;
+            if (!InClass) return;
 
             const FRotator Rot = DirWorld.Rotation();
             FActorSpawnParameters Params;
@@ -699,7 +699,7 @@ void UPoseClassifierComponent::ApplySwingPlaneSweepDamage(const TArray<const FTi
             Params.Owner = GetOwner();
             Params.Instigator = GetOwner() ? GetOwner()->GetInstigator() : nullptr;
 
-            AActor* Proj = GetWorld()->SpawnActor<AActor>(ProjectileClass, SpawnLoc, Rot, Params);
+            AActor* Proj = GetWorld()->SpawnActor<AActor>(InClass, SpawnLoc, Rot, Params);
             if (!Proj) return;
 
             if (UProjectileMovementComponent* PMC = Proj->FindComponentByClass<UProjectileMovementComponent>())
@@ -720,102 +720,73 @@ void UPoseClassifierComponent::ApplySwingPlaneSweepDamage(const TArray<const FTi
     TArray<FVector> ArcPoints;
     ArcPoints.Reserve(TotalPlanes);
 
-    // 메인 루프 (스윕 & (옵션)발사)
+    // ★★★ NEW: U(노란 화살표)와 시작점 누적값
+    FVector SumU = FVector::ZeroVector;
+    FVector SumStart = FVector::ZeroVector;
+    int32   SumCount = 0;
+
+    // 메인 루프
     for (int32 k = 0; k < TotalPlanes; ++k)
     {
         const float t = (TotalPlanes == 1) ? 0.f : (float)k / (float)(TotalPlanes - 1);
         const FQuat RotK = FQuat::Slerp(Rot0, Rot1, t).GetNormalized();
 
         const FVector N = RotK.GetAxisX();
-        const FVector U = RotK.GetAxisY();
-
-        // ★ 연장 손목 앵커 보간
+        const FVector U = RotK.GetAxisY();          // ← 노란 화살표
         const FVector StartK = FMath::Lerp(Start0, Start1, t);
 
-        // 발사 방향(어깨→손목 방향 보간, 안전망 포함)
         const FVector DirK = ((1.f - t) * DirW0 + t * DirW1).GetSafeNormal();
         const FVector FireDir = DirK.IsNearlyZero() ? U : DirK;
 
-        // 평면 중심(Overlap용): 연장 손목에서 카메라 전방 + U 반폭
         const FVector CenterK = StartK + U * HalfExtent.Y;
 
         OverlapPlaneOnce(CenterK, RotK, UniqueActors, DebugSweepDrawTime);
 
+        // per-plane 발사(기존 유지): ProjectileClass 사용
         if (bSpawnAtEachPlane && ProjectileClass)
         {
-            const FVector SpawnLoc = StartK + FireDir * SpawnForwardOffset; // ★ 연장 손목 기준
-            SpawnProjectile(SpawnLoc, FireDir);
+            const FVector SpawnLoc = StartK + FireDir * SpawnForwardOffset;
+            SpawnProjectile(ProjectileClass, SpawnLoc, FireDir);
         }
 
-        // 디버그 (연장 손목 기준 화살표)
+        // 디버그 화살표(기존)
         DrawDebugDirectionalArrow(GetWorld(), StartK, StartK + FireDir * 80.f, 15.f, FColor::Green, false, DebugSweepDrawTime, 0, 1.5f);
         DrawDebugDirectionalArrow(GetWorld(), StartK, StartK + U * 80.f, 15.f, FColor::Yellow, false, DebugSweepDrawTime, 0, 1.5f);
         DrawDebugDirectionalArrow(GetWorld(), StartK, StartK + N * 80.f, 15.f, FColor::Magenta, false, DebugSweepDrawTime, 0, 1.5f);
 
         ArcPoints.Add(StartK);
+
+        // ★★★ NEW: 평균 계산용 누적
+        SumU += U;
+        SumStart += StartK;
+        ++SumCount;
     }
 
-    if (bSpawnArcTrail && ArcPoints.Num() >= 2)
+    // ★★★ CHANGED: 마지막 한 발은 "노란 화살표(U)의 평균"으로 SwingProjectileClass 발사
+    if (!bSpawnAtEachPlane && SwingProjectileClass && SumCount > 0)
     {
-        SpawnArcTrailFromPoints(ArcPoints);
-    }
+        FVector AvgU = SumU / float(SumCount);
+        if (AvgU.IsNearlyZero())
+        {
+            AvgU = U1; // 안전망: 마지막 U로 대체
+        }
+        AvgU = AvgU.GetSafeNormal();
 
-    // 마지막 한 발만
-    if (!bSpawnAtEachPlane && ProjectileClass)
-    {
-        const FVector FireDirLast = DirW1.IsNearlyZero() ? U1 : DirW1;
-        const FVector SpawnLoc = Start1 + FireDirLast * SpawnForwardOffset; // ★ 연장 손목 기준
-        SpawnProjectile(SpawnLoc, FireDirLast);
+        const FVector AvgStart = SumStart / float(SumCount);
+        const FVector SpawnLoc = AvgStart + AvgU * SpawnForwardOffset;
+
+        SpawnProjectile(SwingProjectileClass, SpawnLoc, AvgU);
     }
 
     if (UniqueActors.Num() == 0) return;
 
-    // 4) 근접 데미지 일괄 적용
+    // 4) 근접 데미지 일괄 적용 (기존 동일)
     AController* Inst = GetOwner() ? GetOwner()->GetInstigatorController() : nullptr;
     TSubclassOf<UDamageType> DmgCls = DamageTypeClass;
     for (AActor* A : UniqueActors)
     {
         UGameplayStatics::ApplyDamage(A, SwingDamageAmount, Inst, GetOwner(), DmgCls);
     }
-}
-
-void UPoseClassifierComponent::SpawnArcTrailFromPoints(const TArray<FVector>& Points)
-{
-    if (!GetWorld() || !ArcTrailSystem || Points.Num() < 2 || !GetOwner()) return;
-
-    // 1) 임시 스플라인 생성 후 월드 포인트로 구성
-    SplineComponent = NewObject<USplineComponent>(GetOwner(), USplineComponent::StaticClass(), NAME_None, RF_Transient);
-    if (!SplineComponent) return;
-
-    SplineComponent->SetupAttachment(GetOwner()->GetRootComponent());
-    SplineComponent->SetMobility(EComponentMobility::Movable);
-    SplineComponent->RegisterComponent();
-
-    SplineComponent->ClearSplinePoints(false);
-    for (const FVector& P : Points)
-    {
-        SplineComponent->AddSplinePoint(P, ESplineCoordinateSpace::World, false);
-    }
-    SplineComponent->SetClosedLoop(false);
-    SplineComponent->UpdateSpline();
-
-    // 2) 스플라인을 사용자 파라미터로 넘겨 리본 생성
-    NiagaraComponent = UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), ArcTrailSystem, Points[0], FRotator::ZeroRotator, FVector(1.f), false, true, ENCPoolMethod::AutoRelease, true);
-
-    if (NiagaraComponent)
-    {
-        NiagaraComponent->SetNiagaraVariableObject(TEXT("User.Spline"), SplineComponent);
-        NiagaraComponent->SetNiagaraVariableFloat(TEXT("User.Lifetime"), ArcTrailLifetime);
-
-        // 3) 나이아가라가 사라진 뒤 스플라인 정리
-        FTimerHandle KillHandle;
-        GetWorld()->GetTimerManager().SetTimer(KillHandle, FTimerDelegate::CreateWeakLambda(this, [&]()
-                {
-                    if (SplineComponent) { SplineComponent->DestroyComponent(); }
-                }),
-            ArcTrailLifetime + 0.5f, false);
-    }
-   
 }
 
 void UPoseClassifierComponent::DetectArrow()

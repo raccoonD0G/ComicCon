@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+ï»¿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -22,36 +22,36 @@ protected:
     void SetSwordPos(FVector DirWorld, FVector CenterWorld);
 
     // Receiver Section
-    // === ¸®½Ã¹öÀÇ "¿ø½Ã Æ÷Áî ÀÔ·Â"À» ¹Ş´Â Äİ¹é ===
+    // === ë¦¬ì‹œë²„ì˜ "ì›ì‹œ í¬ì¦ˆ ì…ë ¥"ì„ ë°›ëŠ” ì½œë°± ===
     UFUNCTION()
     void OnSwordPoseInput(const FVector2f& Pelvis2D, const FPersonPose& Pose, const FTransform& OwnerXform);
 
-    // === Sword ³»ºÎ¿¡¼­ Ä® Æ÷Áî °è»ê ===
+    // === Sword ë‚´ë¶€ì—ì„œ ì¹¼ í¬ì¦ˆ ê³„ì‚° ===
     bool TryComputeSwordPoseFromPose(const FVector2f& Pelvis2D, const FPersonPose& Pose, const FTransform& OwnerXform, FVector& OutDirWorld, FVector& OutStartCenterWorld) const;
 
-    // ÇÈ¼¿¡æ·ÎÄÃ º¯È¯(ÇÁ·ÎÁ§Æ®¿¡ ¸Â°Ô Á¶Á¤)
+    // í”½ì…€â†’ë¡œì»¬ ë³€í™˜(í”„ë¡œì íŠ¸ì— ë§ê²Œ ì¡°ì •)
     FVector MakeLocal(const FVector2f& P, const FVector2f& Pelvis) const;
 
-    // === Æ©´×/µğ¹ö±× ÆÄ¶ó¹ÌÅÍ (ÀÌ°üµÊ) ===
+    // === íŠœë‹/ë””ë²„ê·¸ íŒŒë¼ë¯¸í„° (ì´ê´€ë¨) ===
     UPROPERTY(EditAnywhere, Category = "Pose|Sword")
     bool bDrawSwordDebug = true;
 
-    // ¼ÕÀÌ °¡±î¿î Á¶°Ç: HandDist < HandCloseRatio * ShoulderLen
+    // ì†ì´ ê°€ê¹Œìš´ ì¡°ê±´: HandDist < HandCloseRatio * ShoulderLen
     UPROPERTY(EditAnywhere, Category = "Pose|Sword")
     float HandCloseRatio = 1.0f;
 
-    // ¼Õ ¹Ú½º ¿©À¯/ÃÖ¼Ò Å©±â (UU)
+    // ì† ë°•ìŠ¤ ì—¬ìœ /ìµœì†Œ í¬ê¸° (UU)
     UPROPERTY(EditAnywhere, Category = "Pose|Sword")
     float BoxPadUU = 4.f;
 
     UPROPERTY(EditAnywhere, Category = "Pose|Sword")
     float BoxMinSizeUU = 8.f;
 
-    // ¼Õ¸ñ¿¡¼­ "¾Õ"(ÆÈ²ŞÄ¡¡æ¼Õ¸ñ ¹æÇâ)À¸·Î ³»¹Ì´Â ºñÀ²
+    // ì†ëª©ì—ì„œ "ì•"(íŒ”ê¿ˆì¹˜â†’ì†ëª© ë°©í–¥)ìœ¼ë¡œ ë‚´ë¯¸ëŠ” ë¹„ìœ¨
     UPROPERTY(EditAnywhere, Category = "Pose|Sword")
-    float HandForwardRatio = 0.25f; // Àü¿Ï ±æÀÌÀÇ 25%
+    float HandForwardRatio = 0.25f; // ì „ì™„ ê¸¸ì´ì˜ 25%
 
-    // ÇÈ¼¿¡æUU ½ºÄÉÀÏ / ±íÀÌ ¿ÀÇÁ¼Â / ÀÌ¹ÌÁö Y µÚÁı±â(ÇÊ¿ä½Ã)
+    // í”½ì…€â†’UU ìŠ¤ì¼€ì¼ / ê¹Šì´ ì˜¤í”„ì…‹ / ì´ë¯¸ì§€ Y ë’¤ì§‘ê¸°(í•„ìš”ì‹œ)
     UPROPERTY(EditAnywhere, Category = "Pose|Units")
     float PixelToUU = 1.f;
 
@@ -59,18 +59,41 @@ protected:
     float DepthOffsetX = 0.f;
 
     UPROPERTY(EditAnywhere, Category = "Pose|Units")
-    bool bInvertImageYToUp = true; // ÀÌ¹ÌÁö Y°¡ ¾Æ·¡·Î Áõ°¡ÇÏ¸é true
+    bool bInvertImageYToUp = true; // ì´ë¯¸ì§€ Yê°€ ì•„ë˜ë¡œ ì¦ê°€í•˜ë©´ true
 
-    // ¹æÇâ ¹İÀü(ÇÁ·ÎÁ§Æ® ÁÂÇ¥ ¸ÂÃã)
+    // ë°©í–¥ ë°˜ì „(í”„ë¡œì íŠ¸ ì¢Œí‘œ ë§ì¶¤)
     UPROPERTY(EditAnywhere, Category = "Pose|Sword")
     bool bInvertDirectionForSword = true;
 
-    // (Âü°í¿ë) ÇöÀç °è»êµÈ °á°ú
+    // (ì°¸ê³ ìš©) í˜„ì¬ ê³„ì‚°ëœ ê²°ê³¼
     UPROPERTY(BlueprintReadOnly, Category = "Pose", meta = (AllowPrivateAccess = "true"))
     FVector SwordDirectionWorld;
 
     UPROPERTY(BlueprintReadOnly, Category = "Pose", meta = (AllowPrivateAccess = "true"))
     FVector SwordStartCenterWorld;
 
+    // Sword.h
+    UPROPERTY(EditAnywhere, Category = "Sword|Smoothing")
+    float PosHalfLife = 0.0008f; // ìœ„ì¹˜ half-life(ì´ˆ)  -> ì‘ì„ìˆ˜ë¡ ë¹ ë¥´ê²Œ ë¶™ìŒ
+
+    UPROPERTY(EditAnywhere, Category = "Sword|Smoothing")
+    float RotHalfLife = 0.0006f; // íšŒì „ half-life(ì´ˆ)
+
+    UPROPERTY(EditAnywhere, Category = "Sword|Smoothing")
+    float MaxPosSpeedUUps = 35000.f; // ìœ„ì¹˜ ìµœëŒ€ ì†ë„(uu/s) - ìˆœê°„ì´ë™ ë°©ì§€
+
+    UPROPERTY(EditAnywhere, Category = "Sword|Smoothing")
+    float MaxAngularSpeedDegPs = 7200.f; // íšŒì „ ìµœëŒ€ ì†ë„(ë„/ì´ˆ)
+
+    UPROPERTY(EditAnywhere, Category = "Sword|Smoothing")
+    float TeleportDistThreshold = 120.f; // ì´ ê±°ë¦¬ ì´ìƒ íŠ€ë©´ í…”ë ˆí¬íŠ¸ë¡œ ê°„ì£¼(ì¦‰ì‹œ ìŠ¤ëƒ…)
+
+    UPROPERTY(EditAnywhere, Category = "Sword|Smoothing")
+    float MinDirDotToUpdate = 0.15f; // ë„ˆë¬´ ë¶ˆì•ˆì •í•œ ë°©í–¥(ê±°ì˜ 0ë²¡í„°) ë¬´ì‹œ
+
+    // ë‚´ë¶€ ìƒíƒœ
+    bool bHasSmoothedState = false;
+    FVector SmoothedCenter = FVector::ZeroVector;
+    FQuat   SmoothedRot = FQuat::Identity;
 
 };

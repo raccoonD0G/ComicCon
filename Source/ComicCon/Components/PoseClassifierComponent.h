@@ -129,7 +129,7 @@ private:
     float PlaneHalfThickness = 20.f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Arrow|Plane", meta = (AllowPrivateAccess = "true"))
-    bool bDrawDebugPlane = false;
+    bool bDrawDebugPlane = true;
 
 // Swing Section
 private:
@@ -200,10 +200,6 @@ private:
     UPROPERTY(EditAnywhere, Category = "VFX|SwingArc")
     bool bSpawnArcTrail = true;
 
-    // 스플라인을 받아 리본을 그리는 Niagara System (User.Spline, User.Lifetime 사용)
-    UPROPERTY(EditAnywhere, Category = "VFX|SwingArc")
-    TObjectPtr<class UNiagaraSystem> ArcTrailSystem;
-
     UPROPERTY(VisibleAnywhere, Category = "VFX|SwingArc")
 	TObjectPtr<class USplineComponent> SplineComponent;
 
@@ -213,12 +209,13 @@ private:
     UPROPERTY(EditAnywhere, Category = "VFX|SwingArc", meta = (ClampMin = "0.05", ClampMax = "5.0"))
     float ArcTrailLifetime = 1.0f;
 
+    UPROPERTY(EditAnywhere, Category = "VFX|SwingArc")
+	TSubclassOf<AActor> SwingProjectileClass;
+
 private:
     void DetectSwing(); // <- Tick에서 호출
 
     void ApplySwingPlaneSweepDamage(const TArray<const FTimedPoseSnapshot*>& Snaps, TSubclassOf<AActor> ProjectileClass = nullptr, float ProjectileSpeed = 1500.f, float ProjectileLifeSeconds = 3.f, float SpawnForwardOffset = 10.f, bool  bSpawnAtEachPlane = false);
-
-    void SpawnArcTrailFromPoints(const TArray<FVector>& Points);
 
 // Arrow Section
 private:
