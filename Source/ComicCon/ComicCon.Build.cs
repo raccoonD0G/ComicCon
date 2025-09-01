@@ -10,7 +10,7 @@ public class ComicCon : ModuleRules
         
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "Networking", "Sockets", "Json", "HTTP" });
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "Networking", "Sockets", "Json", "HTTP", "MediaPlate" });
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });
 

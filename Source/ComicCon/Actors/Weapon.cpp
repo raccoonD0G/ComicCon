@@ -15,6 +15,11 @@ AWeapon::AWeapon()
 	WeaponMeshComponent->SetupAttachment(RootComponent);
 }
 
+void AWeapon::Init(AMirroredPlayer* InMirroredPlayer)
+{
+    OwningPlayer = InMirroredPlayer;
+}
+
 void AWeapon::BeginPlay()
 {
 	Super::BeginPlay();

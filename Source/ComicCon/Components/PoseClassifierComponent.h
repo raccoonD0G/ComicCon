@@ -109,6 +109,20 @@ private:
     UPROPERTY(EditAnywhere, Category = "Pose")
     EMainHand HandSource = EMainHand::Right;
 
+// Center Section
+public:
+    bool GetShoulderMidWorld(FVector& OutMidWorld) const;
+
+private:
+    // 시작 지점을 어깨 중점으로 강제할지
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Swing", meta = (AllowPrivateAccess = "true"))
+    bool bStartAtShoulderMid = true;
+
+    // 어깨→손목 벡터를 따라 시작 지점을 얼마나 이동할지
+    // 0 = 어깨, 1 = 손목, >1 = 손목 바깥(연장)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Swing", meta = (AllowPrivateAccess = "true"))
+    float StartAlongArmRatio = 0.0f;
+
 // Swing Section
 private:
     // === Swing 판별 파라미터 ===
@@ -169,7 +183,7 @@ private:
 
     // ===== Swing Plane Sweep 파라미터 =====
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Swing|PlaneSweep", meta = (AllowPrivateAccess = "true"))
-    float DebugSweepDrawTime = 0.6f;   // 디버그 박스 표시 시간(초)
+    float DebugSweepDrawTime = 2.0f;   // 디버그 박스 표시 시간(초)
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Arrow|Damage", meta = (AllowPrivateAccess = "true"))
     float SwingDamageAmount = 2.f;        // 데미지 양
@@ -211,7 +225,7 @@ private:
     TEnumAsByte<ECollisionChannel> PlaneChannel = ECC_Pawn; // 겹침 판정 채널
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Arrow|Plane", meta = (AllowPrivateAccess = "true"))
-    bool bDrawDebugPlane = false;
+    bool bDrawDebugPlane = true;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Arrow|Damage", meta = (AllowPrivateAccess = "true"))
     float ArrowDamageAmount = 2.f;        // 데미지 양

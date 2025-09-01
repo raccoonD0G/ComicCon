@@ -14,6 +14,7 @@ class COMICCON_API AWeapon : public AActor
 	
 public:
 	AWeapon();
+	void Init(AMirroredPlayer* InMirroredPlayer);
 
 protected:
 	virtual void BeginPlay() override;

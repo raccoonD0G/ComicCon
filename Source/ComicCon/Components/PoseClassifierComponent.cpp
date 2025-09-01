@@ -261,18 +261,22 @@ bool UPoseClassifierComponent::GetExtendedArmWorld(const FPersonPose& Pose, FVec
     const FVector2f& LWr = Pose.XY[9];
     const FVector2f& RWr = Pose.XY[10];
 
-    auto Finite2D = [](const FVector2f& V) { return FMath::IsFinite(V.X) && FMath::IsFinite(V.Y); };
+    auto Finite2D = [](const FVector2f& V)
+        {
+            return FMath::IsFinite(V.X) && FMath::IsFinite(V.Y);
+        };
     if (!Finite2D(LHip) || !Finite2D(RHip) || !Finite2D(LSh) || !Finite2D(RSh) || !Finite2D(LWr) || !Finite2D(RWr))
         return false;
 
     const FVector2f Pelvis2D = (LHip + RHip) * 0.5f;
 
-    // 2D->로컬
-    auto Map2DToLocal = [&](const FVector2f& P)->FVector {
-        const FVector2f Rel = P - Pelvis2D;
-        const float Y = Rel.X * PixelToUU;     // 화면 X -> 로컬 Y
-        const float Z = -Rel.Y * PixelToUU;    // 화면 Y(아래+) -> 로컬 Z(위+)
-        return FVector(DepthOffsetX, Y, Z);    // 로컬 X는 앞쪽 오프셋
+    // 2D → 로컬(Y=오른쪽, Z=위), X=깊이(고정 오프셋)
+    auto Map2DToLocal = [&](const FVector2f& P)->FVector
+        {
+            const FVector2f Rel = P - Pelvis2D;
+            const float Y = Rel.X * PixelToUU;                 // 화면 X → 로컬 Y
+            const float Z = (bInvertImageYToUp ? -Rel.Y : Rel.Y) * PixelToUU; // 화면 Y(아래+) → 로컬 Z(위+)
+            return FVector(DepthOffsetX, Y, Z);
         };
 
     // 로컬 좌표
@@ -281,29 +285,54 @@ bool UPoseClassifierComponent::GetExtendedArmWorld(const FPersonPose& Pose, FVec
     const FVector LWrL = Map2DToLocal(LWr);
     const FVector RWrL = Map2DToLocal(RWr);
 
-    // 어느 팔이 더 “뻗었는가”: Shoulder->Wrist 길이로 결정
+    // 손 선택: Auto(더 뻗은 팔) / Left / Right
     const float LenL = (LWrL - LShL).Size();
     const float LenR = (RWrL - RShL).Size();
-    const bool bUseLeft = (LenL >= LenR);
+
+    bool bUseLeft = (LenL >= LenR);
+    switch (HandSource)
+    {
+    case EMainHand::Left:  bUseLeft = true;  break;
+    case EMainHand::Right: bUseLeft = false; break;
+    case EMainHand::Auto:  /* keep bUseLeft as decided by reach */ break;
+    }
 
     const FVector ShL = bUseLeft ? LShL : RShL;
     const FVector WrL = bUseLeft ? LWrL : RWrL;
 
     const FTransform& Xf = GetOwner()->GetActorTransform();
 
-    // 월드 위치
+    // 월드 변환
+    const FVector LShW = Xf.TransformPosition(LShL);
+    const FVector RShW = Xf.TransformPosition(RShL);
     const FVector ShW = Xf.TransformPosition(ShL);
     const FVector WrW = Xf.TransformPosition(WrL);
 
-    // 전완 방향 = Shoulder->Wrist
-    FVector Dir = (WrW - ShW);
-    if (!Dir.Normalize()) return false;
+    // 어깨→손목 벡터 (월드)
+    const FVector vSW = (WrW - ShW);
+    const float   len = vSW.Size();
+    if (len <= KINDA_SMALL_NUMBER) return false;
 
-    // UpperArmDir 도 Shoulder->Wrist 로 통일
-    FVector Upper = (WrW - ShW);
-    if (!Upper.Normalize()) Upper = Dir;
+    const FVector Dir = vSW / len; // 진행 방향(어깨→손목)
 
-    OutStart = ShW;
+    // 시작점 결정:
+    //  - bStartAtShoulderMid == true  → 어깨 중점
+    //  - else StartAlongArmRatio      → 어깨에서 손목 방향으로 비율만큼 이동 (1=손목, >1=손목 바깥)
+    FVector StartW = ShW;
+    if (bStartAtShoulderMid)
+    {
+        const FVector ShoulderMidW = 0.5f * (LShW + RShW);
+        StartW = ShoulderMidW;
+    }
+    else
+    {
+        StartW = ShW + vSW * StartAlongArmRatio;
+    }
+
+    // UpperArmDir: 평면 구성용 축. 기본은 Dir 과 동일(안정적).
+    FVector Upper = Dir;
+
+    OutStart = StartW;
     OutDir = Dir;
     OutUpperArmDir = Upper;
     return true;
@@ -370,6 +399,60 @@ void UPoseClassifierComponent::OverlapPlaneOnce(const FVector& Center, const FQu
             }
         }
     }
+}
+
+bool UPoseClassifierComponent::GetShoulderMidWorld(FVector& OutMidWorld) const
+{
+    OutMidWorld = FVector::ZeroVector;
+    if (!Receiver || !GetOwner()) return false;
+
+    const TArray<FPersonPose>& Poses = Receiver->GetLatestPoses();
+    if (Poses.Num() == 0) return false;
+
+    const int32 LSH = 5, RSH = 6, LHIP = 11, RHIP = 12;
+
+    // 가장 신뢰도 높은 양어깨/양힙 유효 사람 선택
+    int32 BestIdx = INDEX_NONE;
+    float BestScore = -FLT_MAX;
+
+    for (int32 i = 0; i < Poses.Num(); ++i)
+    {
+        const FPersonPose& P = Poses[i];
+        if (!(P.XY.IsValidIndex(LSH) && P.XY.IsValidIndex(RSH) &&
+            P.XY.IsValidIndex(LHIP) && P.XY.IsValidIndex(RHIP))) continue;
+
+        const FVector2f& LSh = P.XY[LSH], & RSh = P.XY[RSH], & LHip = P.XY[LHIP], & RHip = P.XY[RHIP];
+        if (!(IsFinite2D(LSh) && IsFinite2D(RSh) && IsFinite2D(LHip) && IsFinite2D(RHip))) continue;
+
+        const float cL = (P.Conf.IsValidIndex(LSH) ? P.Conf[LSH] : 1.f);
+        const float cR = (P.Conf.IsValidIndex(RSH) ? P.Conf[RSH] : 1.f);
+        const float Score = cL + cR;
+
+        if (Score > BestScore) { BestScore = Score; BestIdx = i; }
+    }
+    if (BestIdx == INDEX_NONE) return false;
+
+    const FPersonPose& Best = Poses[BestIdx];
+    const FVector2f Pelvis2D = (Best.XY[LHIP] + Best.XY[RHIP]) * 0.5f;
+
+    // 이미지→로컬(Y=오른쪽, Z=위, X=깊이)
+    auto Map2DToLocal = [&](const FVector2f& P)->FVector
+        {
+            const FVector2f Rel = P - Pelvis2D;
+            const float Y = Rel.X * PixelToUU;                                   // imgX -> localY
+            const float Z = (bInvertImageYToUp ? -Rel.Y : Rel.Y) * PixelToUU;    // imgY(↓) -> localZ(↑)
+            return FVector(DepthOffsetX, Y, Z);
+        };
+
+    const FVector LShL = Map2DToLocal(Best.XY[LSH]);
+    const FVector RShL = Map2DToLocal(Best.XY[RSH]);
+
+    const FTransform& OwnerXf = GetOwner()->GetActorTransform();
+    const FVector LShW = OwnerXf.TransformPosition(LShL);
+    const FVector RShW = OwnerXf.TransformPosition(RShL);
+
+    OutMidWorld = 0.5f * (LShW + RShW);
+    return true;
 }
 
 void UPoseClassifierComponent::DetectSwing()
@@ -511,7 +594,7 @@ void UPoseClassifierComponent::DetectSwing()
     WindowBuffer.Reset();
 }
 
-void UPoseClassifierComponent::ApplySwingPlaneSweepDamage(const TArray<const FTimedPoseSnapshot*>& Snaps, TSubclassOf<AActor> ProjectileClass, float ProjectileSpeed, float ProjectileLifeSeconds, float SpawnForwardOffset, bool bSpawnAtEachPlane)
+void UPoseClassifierComponent::ApplySwingPlaneSweepDamage( const TArray<const FTimedPoseSnapshot*>& Snaps, TSubclassOf<AActor> ProjectileClass, float ProjectileSpeed, float ProjectileLifeSeconds, float SpawnForwardOffset, bool bSpawnAtEachPlane)
 {
     if (!GetWorld() || Snaps.Num() < 2) return;
 
@@ -519,15 +602,19 @@ void UPoseClassifierComponent::ApplySwingPlaneSweepDamage(const TArray<const FTi
     FVector CamLoc, CamFwd;
     if (!GetCameraView(CamLoc, CamFwd)) return;
 
-    // 2) 첫/끝 스냅샷으로 평면 축 추출
-    auto MakePlaneFromSnap = [&](const FTimedPoseSnapshot* S, FVector& OutStartW, FQuat& OutRot, FVector& OutU) -> bool
+    // 2) 첫/끝 스냅샷으로 평면 축 + "손목 방향" 추출
+    auto MakePlaneFromSnap = [&](const FTimedPoseSnapshot* S,
+        FVector& OutStartW,
+        FQuat& OutRot,
+        FVector& OutU,
+        FVector& OutDirToWrist) -> bool
         {
             int32 PersonIdx = INDEX_NONE;
             if (!PickBestPerson(S->Poses, PersonIdx)) return false;
             const FPersonPose& P = S->Poses[PersonIdx];
 
             FVector StartW, DirW, UpperW;
-            if (!GetExtendedArmWorld(P, StartW, DirW, UpperW)) return false;
+            if (!GetExtendedArmWorld(P, StartW, DirW, UpperW)) return false; // DirW = 어깨→손목 (단위)
 
             // 법선 N = CamFwd × UpperW
             FVector N = FVector::CrossProduct(CamFwd, UpperW).GetSafeNormal();
@@ -547,22 +634,27 @@ void UPoseClassifierComponent::ApplySwingPlaneSweepDamage(const TArray<const FTi
 
             const FMatrix M(
                 FPlane(N.X, N.Y, N.Z, 0.f),   // X축 = 평면 법선
-                FPlane(U.X, U.Y, U.Z, 0.f),   // Y축 = 스윙 진행(팔축)
+                FPlane(U.X, U.Y, U.Z, 0.f),   // Y축 = 스윙 진행(평면 내 팔축)
                 FPlane(Z.X, Z.Y, Z.Z, 0.f),   // Z축
                 FPlane(0, 0, 0, 1)
             );
-            OutStartW = StartW;
+
+            OutStartW = StartW;            // 어깨(또는 옵션으로 정한 시작점)
             OutRot = FQuat(M);
-            OutU = U;
+            OutU = U;                 // 평면 진행축(스윕용)
+            OutDirToWrist = DirW.GetSafeNormal(); // ★ 발사용: 어깨→손목
+            if (OutDirToWrist.IsNearlyZero())   // 안전망: 못 구하면 U 쓰기
+                OutDirToWrist = U;
             return true;
         };
 
     FVector Start0, Start1;  FQuat Rot0, Rot1;  FVector U0, U1;
+    FVector DirW0, DirW1; // ★ 어깨→손목 방향(월드)
     const FTimedPoseSnapshot* SnapFirst = Snaps[0];
     const FTimedPoseSnapshot* SnapLast = Snaps.Last();
 
-    if (!MakePlaneFromSnap(SnapFirst, Start0, Rot0, U0)) return;
-    if (!MakePlaneFromSnap(SnapLast, Start1, Rot1, U1)) return;
+    if (!MakePlaneFromSnap(SnapFirst, Start0, Rot0, U0, DirW0)) return;
+    if (!MakePlaneFromSnap(SnapLast, Start1, Rot1, U1, DirW1)) return;
 
     // 3) 보간 개수 산정
     const float AngleRad = Rot0.AngularDistance(Rot1);
@@ -572,10 +664,9 @@ void UPoseClassifierComponent::ApplySwingPlaneSweepDamage(const TArray<const FTi
     TotalPlanes = FMath::Clamp(TotalPlanes, FMath::Max(2, MinInterpPlanes), MaxInterpPlanes);
 
     const FVector HalfExtent(SwingPlaneHalfThickness, PlaneHalfSize.X, PlaneHalfSize.Y);
-
     TSet<AActor*> UniqueActors;
 
-    // 발사 유틸(ProjectileMovement 있으면 속도 세팅)
+    // 발사 유틸
     auto SpawnProjectile = [&](const FVector& SpawnLoc, const FVector& DirWorld)
         {
             if (!ProjectileClass) return;
@@ -592,11 +683,9 @@ void UPoseClassifierComponent::ApplySwingPlaneSweepDamage(const TArray<const FTi
             if (UProjectileMovementComponent* PMC = Proj->FindComponentByClass<UProjectileMovementComponent>())
             {
                 PMC->Velocity = DirWorld * ProjectileSpeed;
-                // 필요시: PMC->ProjectileGravityScale = 0.f;
             }
             else
             {
-                // 이동컴포넌트 없으면 한 프레임만 밀어 시작감 부여
                 Proj->SetActorLocation(SpawnLoc + DirWorld * (ProjectileSpeed * GetWorld()->GetDeltaSeconds()));
             }
 
@@ -606,52 +695,57 @@ void UPoseClassifierComponent::ApplySwingPlaneSweepDamage(const TArray<const FTi
             }
         };
 
-    // 메인 루프: 스윕+옵션 발사
+    // 메인 루프
     for (int32 k = 0; k < TotalPlanes; ++k)
     {
         const float t = (TotalPlanes == 1) ? 0.f : (float)k / (float)(TotalPlanes - 1);
 
-        // 회전 보간
+        // 회전 보간(스윕 평면용)
         const FQuat RotK = FQuat::Slerp(Rot0, Rot1, t).GetNormalized();
 
-        // 축 추출: X=법선, Y=스윙 진행(발사 방향)
+        // 축(스윕용)
         const FVector N = RotK.GetAxisX();
         const FVector U = RotK.GetAxisY();
 
-        // 시작점/센터
+        // 시작점(어깨) 보간
         const FVector StartK = FMath::Lerp(Start0, Start1, t);
+
+        // ★발사 방향: 어깨→손목 방향 보간
+        // (간단 선형 보간 후 정규화; 더 부드럽게 하려면 쿼터니언 기반 slerp 구현해도 됨)
+        const FVector DirK = ((1.f - t) * DirW0 + t * DirW1).GetSafeNormal();
+        const FVector FireDir = DirK.IsNearlyZero() ? U : DirK;
+
+        // 평면 중심(Overlap용) — 기존 유지
         const FVector CenterK = StartK + CamFwd * PlaneDistance + U * HalfExtent.Y;
 
         // 3-1) 평면 스윕 (근접 판정)
         OverlapPlaneOnce(CenterK, RotK, UniqueActors, DebugSweepDrawTime);
 
-        // 3-2) (옵션) 각 보간 평면에서 발사
+        // 3-2) (옵션) 각 보간 평면에서 발사 — ★어깨에서 손목 방향으로 발사★
         if (bSpawnAtEachPlane && ProjectileClass)
         {
-            const FVector SpawnLoc = CenterK + U * SpawnForwardOffset;
-            SpawnProjectile(SpawnLoc, U);
+            const FVector SpawnLoc = StartK + FireDir * SpawnForwardOffset;
+            SpawnProjectile(SpawnLoc, FireDir);
         }
 
-        // 디버그(선택)
-        DrawDebugDirectionalArrow(GetWorld(), CenterK, CenterK + CamFwd * 80.f, 15.f, FColor::Blue, false, DebugSweepDrawTime, 0, 1.5f);
-        DrawDebugDirectionalArrow(GetWorld(), CenterK, CenterK + U * 80.f, 15.f, FColor::Yellow, false, DebugSweepDrawTime, 0, 1.5f);
-        DrawDebugDirectionalArrow(GetWorld(), CenterK, CenterK + N * 80.f, 15.f, FColor::Magenta, false, DebugSweepDrawTime, 0, 1.5f);
+        // 디버그: 어깨 기준 화살표
+        DrawDebugDirectionalArrow(GetWorld(), StartK, StartK + CamFwd * 80.f, 15.f, FColor::Blue, false, DebugSweepDrawTime, 0, 1.5f);
+        DrawDebugDirectionalArrow(GetWorld(), StartK, StartK + FireDir * 80.f, 15.f, FColor::Green, false, DebugSweepDrawTime, 0, 1.5f); // ★발사 방향
+        DrawDebugDirectionalArrow(GetWorld(), StartK, StartK + U * 80.f, 15.f, FColor::Yellow, false, DebugSweepDrawTime, 0, 1.5f); // 평면 진행축
+        DrawDebugDirectionalArrow(GetWorld(), StartK, StartK + N * 80.f, 15.f, FColor::Magenta, false, DebugSweepDrawTime, 0, 1.5f);
     }
 
-    // 3-3) 기본: 마지막 평면에서 1발만 발사 (원하면 이 브랜치만 써도 됨)
+    // 3-3) 마지막 한 발만 쏘는 경우 — ★어깨에서 DirW1 방향★
     if (!bSpawnAtEachPlane && ProjectileClass)
     {
-        const FVector U_last = Rot1.GetAxisY();                 // 스윙 진행 방향
-        const FVector Start_last = Start1;
-        const FVector Center_last = Start_last + CamFwd * PlaneDistance + U_last * HalfExtent.Y;
-
-        const FVector SpawnLoc = Center_last + U_last * SpawnForwardOffset;
-        SpawnProjectile(SpawnLoc, U_last);
+        const FVector FireDirLast = DirW1.IsNearlyZero() ? U1 : DirW1;
+        const FVector SpawnLoc = Start1 + FireDirLast * SpawnForwardOffset;
+        SpawnProjectile(SpawnLoc, FireDirLast);
     }
 
     if (UniqueActors.Num() == 0) return;
 
-    // 4) 데미지 일괄 적용 (근접)
+    // 4) 근접 데미지 일괄 적용
     AController* Inst = GetOwner() ? GetOwner()->GetInstigatorController() : nullptr;
     TSubclassOf<UDamageType> DmgCls = DamageTypeClass;
 
@@ -1122,30 +1216,22 @@ void UPoseClassifierComponent::DetectSingleSwing(EMainHand WhichHand)
     WindowBuffer.Reset();
 }
 
-void UPoseClassifierComponent::ApplyMainHandMovementPlaneAndFire(const TArray<const FTimedPoseSnapshot*>& Snaps, EMainHand WhichHand, TSubclassOf<AActor> ProjectileClass, float ProjectileSpeed, float ProjectileLifeSeconds, float SpawnForwardOffset, bool bSpawnAtEachPlane)
+void UPoseClassifierComponent::ApplyMainHandMovementPlaneAndFire(
+    const TArray<const FTimedPoseSnapshot*>& Snaps,
+    EMainHand WhichHand,
+    TSubclassOf<AActor> ProjectileClass,
+    float ProjectileSpeed,
+    float ProjectileLifeSeconds,
+    float SpawnForwardOffset,
+    bool bSpawnAtEachPlane)
 {
-    if (!GetWorld() || Snaps.Num() < 2) return;
+    if (!GetWorld() || Snaps.Num() < 3) return;
 
     // 1) 카메라 시선
     FVector CamLoc, CamFwd;
     if (!GetCameraView(CamLoc, CamFwd)) return;
 
-    // 2) 첫/끝 스냅샷에서 "월드 기준 앵커"만 추출 (센터 위치 용)
-    auto MakeAnchorFromSnap = [&](const FTimedPoseSnapshot* S, FVector& OutStartW) -> bool
-        {
-            int32 PersonIdx = INDEX_NONE;
-            if (!PickBestPerson(S->Poses, PersonIdx)) return false;
-            const FPersonPose& P = S->Poses[PersonIdx];
-
-            // 기존에 쓰던 팔 기준 앵커(어깨/손 기반) 얻기
-            FVector StartW, DirW, UpperW;
-            if (!GetExtendedArmWorld(P, StartW, DirW, UpperW)) return false;
-
-            OutStartW = StartW;
-            return true;
-        };
-
-    // 3) 첫/끝 스냅샷에서 "메인 손"의 2D 이동 방향(이미지 좌표) 구하기
+    // 2) 유틸: 손목 2D/어깨폭, 손목 월드 변환
     auto PickWrist2D = [](const FPersonPose& P, bool bRight, FVector2D& OutWr) -> bool
         {
             const int32 idx = bRight ? COCO_RWR : COCO_LWR;
@@ -1155,98 +1241,165 @@ void UPoseClassifierComponent::ApplyMainHandMovementPlaneAndFire(const TArray<co
             OutWr = FVector2D(W.X, W.Y);
             return true;
         };
-
-    auto PickShoulderMid2D = [](const FPersonPose& P, FVector2D& OutMid) -> bool
+    auto PickShoulderWidth2D = [](const FPersonPose& P, double& OutSW)->bool
         {
             if (!(P.XY.IsValidIndex(COCO_LSH) && P.XY.IsValidIndex(COCO_RSH))) return false;
-            const FVector2f L = P.XY[COCO_LSH];
-            const FVector2f R = P.XY[COCO_RSH];
+            const FVector2f L = P.XY[COCO_LSH], R = P.XY[COCO_RSH];
             if (!FMath::IsFinite(L.X) || !FMath::IsFinite(L.Y) || !FMath::IsFinite(R.X) || !FMath::IsFinite(R.Y)) return false;
-            OutMid = 0.5 * FVector2D(L.X + R.X, L.Y + R.Y);
+            OutSW = FVector2D::Distance(FVector2D(L.X, L.Y), FVector2D(R.X, R.Y));
+            return true;
+        };
+    auto GetWristWorldOfSnap = [&](const FTimedPoseSnapshot* S, bool bRight, FVector& OutWristW) -> bool
+        {
+            int32 PersonIdx = INDEX_NONE;
+            if (!PickBestPerson(S->Poses, PersonIdx)) return false;
+            const FPersonPose& P = S->Poses[PersonIdx];
+            if (P.XY.Num() < 17) return false;
+
+            // Pelvis 계산
+            const FVector2f& LHip = P.XY[11];
+            const FVector2f& RHip = P.XY[12];
+            if (!FMath::IsFinite(LHip.X) || !FMath::IsFinite(LHip.Y) ||
+                !FMath::IsFinite(RHip.X) || !FMath::IsFinite(RHip.Y)) return false;
+            const FVector2f Pelvis2D = (LHip + RHip) * 0.5f;
+
+            // 손목 2D
+            const int32 idxWr = bRight ? COCO_RWR : COCO_LWR;
+            if (!P.XY.IsValidIndex(idxWr)) return false;
+            const FVector2f W2 = P.XY[idxWr];
+            if (!FMath::IsFinite(W2.X) || !FMath::IsFinite(W2.Y)) return false;
+
+            // 2D→로컬(Y=오른쪽, Z=위), X=깊이 오프셋
+            const FVector2f Rel = W2 - Pelvis2D;
+            const float YY = Rel.X * PixelToUU;
+            const float ZZ = (bInvertImageYToUp ? -Rel.Y : Rel.Y) * PixelToUU;
+            const FVector Local(DepthOffsetX, YY, ZZ);
+
+            // 로컬→월드
+            const FTransform& Xf = GetOwner()->GetActorTransform();
+            OutWristW = Xf.TransformPosition(Local);
             return true;
         };
 
-    const FTimedPoseSnapshot* SnapFirst = Snaps[0];
-    const FTimedPoseSnapshot* SnapLast = Snaps.Last();
+    // 3) “최우선 사람”을 시간순으로 뽑아 시퀀스 구성
+    struct FSample { double T; const FTimedPoseSnapshot* Snap; FVector2D Wr; double SW; };
+    TArray<FSample> Smp; Smp.Reserve(Snaps.Num());
+    for (const FTimedPoseSnapshot* S : Snaps)
+    {
+        int32 idx = INDEX_NONE;
+        if (!PickBestPerson(S->Poses, idx)) continue;
+        const FPersonPose& P = S->Poses[idx];
+        Smp.Add({ (double)S->TimestampMs * 0.001, S, FVector2D::ZeroVector, 0.0 });
+    }
+    if (Smp.Num() < 3) return;
 
-    // 각 스냅에서 "최우선 사람" 픽
-    int32 I0 = INDEX_NONE, I1 = INDEX_NONE;
-    if (!PickBestPerson(SnapFirst->Poses, I0)) return;
-    if (!PickBestPerson(SnapLast->Poses, I1)) return;
-    const FPersonPose& P0 = SnapFirst->Poses[I0];
-    const FPersonPose& P1 = SnapLast->Poses[I1];
-
-    // Auto면 양손 중 이동량 큰 손을 선택
-    auto DecideHand = [&](EMainHand H)->EMainHand
+    // 4) 메인 손 결정 (Auto → 첫/끝 이동량 큰 손)
+    auto DecideHandRight = [&](EMainHand H)->bool
         {
-            if (H != EMainHand::Auto) return H;
+            if (H == EMainHand::Left)  return false;
+            if (H == EMainHand::Right) return true;
+
+            int32 p0 = INDEX_NONE, p1 = INDEX_NONE;
+            PickBestPerson(Snaps[0]->Poses, p0);
+            PickBestPerson(Snaps.Last()->Poses, p1);
+            if (p0 == INDEX_NONE || p1 == INDEX_NONE) return true;
+
+            const FPersonPose& P0 = Snaps[0]->Poses[p0];
+            const FPersonPose& P1 = Snaps.Last()->Poses[p1];
             FVector2D L0, L1, R0, R1;
             const bool bL = PickWrist2D(P0, false, L0) && PickWrist2D(P1, false, L1);
             const bool bR = PickWrist2D(P0, true, R0) && PickWrist2D(P1, true, R1);
-            if (bL && bR) {
-                const double dl = (L1 - L0).Size();
-                const double dr = (R1 - R0).Size();
-                return (dr >= dl) ? EMainHand::Right : EMainHand::Left;
+            if (bL && bR) return ((R1 - R0).Size() >= (L1 - L0).Size());
+            if (bR) return true;
+            if (bL) return false;
+            return true;
+        };
+    const bool bRight = DecideHandRight(WhichHand);
+
+    // 5) 각 샘플에 손목/어깨폭 채우기
+    for (int32 i = 0; i < Smp.Num(); ++i)
+    {
+        int32 idx = INDEX_NONE;
+        if (!PickBestPerson(Smp[i].Snap->Poses, idx)) { Smp.RemoveAt(i--); continue; }
+        const FPersonPose& P = Smp[i].Snap->Poses[idx];
+        if (!PickWrist2D(P, bRight, Smp[i].Wr) || !PickShoulderWidth2D(P, Smp[i].SW)) { Smp.RemoveAt(i--); continue; }
+    }
+    if (Smp.Num() < 3) return;
+
+    // 6) 속도(어깨폭 정규화)로 “가속 시작/멈춤” 시점 찾기
+    double MeanSW = 0.0; for (auto& s : Smp) MeanSW += FMath::Max(1e-6, s.SW); MeanSW /= (double)Smp.Num();
+
+    TArray<double> SpeedNorm; SpeedNorm.SetNum(Smp.Num());
+    SpeedNorm[0] = 0.0;
+    for (int i = 1; i < Smp.Num(); ++i)
+    {
+        const double dt = FMath::Max(1e-6, Smp[i].T - Smp[i - 1].T);
+        const double v = (Smp[i].Wr - Smp[i - 1].Wr).Size() / dt;
+        SpeedNorm[i] = v / FMath::Max(1e-6, MeanSW);
+    }
+
+    // 느슨한 히스테리시스
+    const double EnterSpeedThresh = 0.80;
+    const double ExitSpeedThresh = 0.40;
+    const double HoldFastSec = 0.06;
+    const double HoldStillSec = 0.06;
+
+    auto FindRun = [&](int startIdx, double thresh, double holdSec, bool bAbove, int& outIdx)->bool
+        {
+            double acc = 0.0;
+            for (int i = startIdx; i < Smp.Num(); ++i)
+            {
+                const bool pass = bAbove ? (SpeedNorm[i] >= thresh) : (SpeedNorm[i] <= thresh);
+                const double dt = (i > 0) ? (Smp[i].T - Smp[i - 1].T) : 0.0;
+                if (pass) { acc += dt; if (acc >= holdSec) { outIdx = i; return true; } }
+                else acc = 0.0;
             }
-            if (bR) return EMainHand::Right;
-            if (bL) return EMainHand::Left;
-            return EMainHand::Right; // 폴백
+            return false;
         };
 
-    EMainHand Decided = DecideHand(WhichHand);
-    const bool bRight = (Decided == EMainHand::Right);
+    int iEnter = -1; if (!FindRun(1, EnterSpeedThresh, HoldFastSec, true, iEnter)) iEnter = 0;
+    int iExit = -1; if (!FindRun(FMath::Max(1, iEnter + 1), ExitSpeedThresh, HoldStillSec, false, iExit)) iExit = Smp.Num() - 1;
+    if (iExit <= iEnter) iExit = Smp.Num() - 1;
 
-    // 손목 2D 이동 벡터
-    FVector2D W0, W1;
-    if (!PickWrist2D(P0, bRight, W0) || !PickWrist2D(P1, bRight, W1)) return;
-    FVector2D DirImage = (W1 - W0);
-    if (!DirImage.Normalize()) return;
+    // 7) 발사 방향: Enter→Exit (이미지 2D → 월드 YZ)
+    const FVector2D P_enter = Smp[iEnter].Wr;
+    const FVector2D P_exit = Smp[iExit].Wr;
+    FVector2D DirImg = (P_exit - P_enter); if (!DirImg.Normalize()) return;
 
-    // (선택) 몸 중심 변화 보정이 필요하면 어깨중점 사용 가능
-    // FVector2D C0, C1; if (PickShoulderMid2D(P0, C0) && PickShoulderMid2D(P1, C1)) { DirImage = ( (W1-C1) - (W0-C0) ).GetSafeNormal(); }
-
-    // 이미지 2D 방향 → 월드 YZ 방향
     const FTransform OwnerXf = GetOwner()->GetActorTransform();
     const FVector AxisY = OwnerXf.GetUnitAxis(EAxis::Y);
     const FVector AxisZ = OwnerXf.GetUnitAxis(EAxis::Z);
-    const float y = DirImage.X;
-    const float z = bInvertImageYToUp ? -DirImage.Y : DirImage.Y;
-    FVector U = (y * AxisY + z * AxisZ).GetSafeNormal();   // 스윙 진행(발사) 방향
-    if (U.IsNearlyZero()) return;
+    const float y = DirImg.X;
+    const float z = bInvertImageYToUp ? -DirImg.Y : DirImg.Y;
+    const FVector Udir = (y * AxisY + z * AxisZ).GetSafeNormal();
+    if (Udir.IsNearlyZero()) return;
 
-    // 월드 앵커(센터 기준점) 두 개
-    FVector StartW0, StartW1;
-    if (!MakeAnchorFromSnap(SnapFirst, StartW0)) return;
-    if (!MakeAnchorFromSnap(SnapLast, StartW1)) return;
+    // 8) 손목 월드 위치(Enter/Exit) — ★Spawn은 Exit 손목에서!★
+    FVector WristEnterW, WristExitW;
+    if (!GetWristWorldOfSnap(Smp[iEnter].Snap, bRight, WristEnterW)) return;
+    if (!GetWristWorldOfSnap(Smp[iExit].Snap, bRight, WristExitW)) return;
 
-    // 평면의 법선/세로축 구성: N = CamFwd × U, Z = N × U
-    FVector N = FVector::CrossProduct(CamFwd, U).GetSafeNormal();
-    if (N.IsNearlyZero()) {
-        // 카메라가 진행방향과 거의 평행할 때 방어: 월드 Up 대체
-        N = FVector::CrossProduct(FVector::UpVector, U).GetSafeNormal();
+    // 9) 평면(스윕) 축: N = CamFwd × Udir, Z = N × Udir (회전 고정)
+    FVector N = FVector::CrossProduct(CamFwd, Udir).GetSafeNormal();
+    if (N.IsNearlyZero())
+    {
+        N = FVector::CrossProduct(FVector::UpVector, Udir).GetSafeNormal();
         if (N.IsNearlyZero()) N = FVector::RightVector;
     }
-    const FVector Z = FVector::CrossProduct(N, U).GetSafeNormal();
-
-    // 회전 행렬(고정 회전: 진행방향 기준)
+    const FVector Z = FVector::CrossProduct(N, Udir).GetSafeNormal();
     const FMatrix M(
-        FPlane(N.X, N.Y, N.Z, 0.f),  // X = 법선
-        FPlane(U.X, U.Y, U.Z, 0.f),  // Y = 진행
-        FPlane(Z.X, Z.Y, Z.Z, 0.f),  // Z
+        FPlane(N.X, N.Y, N.Z, 0.f),      // X = 법선
+        FPlane(Udir.X, Udir.Y, Udir.Z, 0.f), // Y = 진행
+        FPlane(Z.X, Z.Y, Z.Z, 0.f),      // Z
         FPlane(0, 0, 0, 1)
     );
     const FQuat RotFixed(M);
 
-    // 4) 보간 개수/반폭 세팅 (기존과 동일)
-    const float StepDeg = FMath::Max(1e-3f, DegreesPerInterp);
-    // 이동 기반이라 회전차가 작을 수 있으니, 최소 평면 수 보장
-    int32 TotalPlanes = FMath::Max(MinInterpPlanes, 3);
-    TotalPlanes = FMath::Clamp(TotalPlanes, FMath::Max(2, MinInterpPlanes), MaxInterpPlanes);
-
+    // 10) 스윕/발사
+    const int32 TotalPlanes = FMath::Clamp(FMath::Max(3, MinInterpPlanes), MinInterpPlanes, MaxInterpPlanes);
     const FVector HalfExtent(SwingPlaneHalfThickness, PlaneHalfSize.X, PlaneHalfSize.Y);
     TSet<AActor*> UniqueActors;
 
-    // 발사 유틸
     auto SpawnProjectile = [&](const FVector& SpawnLoc, const FVector& DirWorld)
         {
             if (!ProjectileClass) return;
@@ -1271,41 +1424,39 @@ void UPoseClassifierComponent::ApplyMainHandMovementPlaneAndFire(const TArray<co
             if (ProjectileLifeSeconds > 0.f) Proj->SetLifeSpan(ProjectileLifeSeconds);
         };
 
-    // 5) 스윕 & (옵션) 발사
+    // 손목 기반 보간(Enter→Exit)
     for (int32 k = 0; k < TotalPlanes; ++k)
     {
         const float t = (TotalPlanes == 1) ? 0.f : (float)k / (float)(TotalPlanes - 1);
+        const FVector WristK = FMath::Lerp(WristEnterW, WristExitW, t);
 
-        // 진행방향은 고정(U), 회전도 고정(RotFixed). 위치만 보간.
-        const FVector StartK = FMath::Lerp(StartW0, StartW1, t);
-        const FVector CenterK = StartK + CamFwd * PlaneDistance + U * HalfExtent.Y;
-
+        // Overlap 평면 중심: 손목에서 카메라 전방 + 진행방향 반폭
+        const FVector CenterK = WristK + CamFwd * PlaneDistance + Udir * HalfExtent.Y;
         OverlapPlaneOnce(CenterK, RotFixed, UniqueActors, DebugSweepDrawTime);
 
         if (bSpawnAtEachPlane && ProjectileClass)
         {
-            const FVector SpawnLoc = CenterK + U * SpawnForwardOffset;
-            SpawnProjectile(SpawnLoc, U);
+            // ★항상 Exit 손목에서 발사★ (요구사항)
+            const FVector SpawnLoc = WristExitW + Udir * SpawnForwardOffset;
+            SpawnProjectile(SpawnLoc, Udir);
         }
 
-        // 디버그(선택)
-        DrawDebugDirectionalArrow(GetWorld(), CenterK, CenterK + CamFwd * 80.f, 15.f, FColor::Blue, false, DebugSweepDrawTime, 0, 1.5f);
-        DrawDebugDirectionalArrow(GetWorld(), CenterK, CenterK + U * 80.f, 15.f, FColor::Yellow, false, DebugSweepDrawTime, 0, 1.5f);
-        DrawDebugDirectionalArrow(GetWorld(), CenterK, CenterK + N * 80.f, 15.f, FColor::Magenta, false, DebugSweepDrawTime, 0, 1.5f);
+        // 디버그
+        DrawDebugDirectionalArrow(GetWorld(), WristK, WristK + Udir * 80.f, 15.f, FColor::Green, false, DebugSweepDrawTime, 0, 1.5f);
+        DrawDebugDirectionalArrow(GetWorld(), WristK, WristK + N * 80.f, 15.f, FColor::Magenta, false, DebugSweepDrawTime, 0, 1.5f);
+        DrawDebugSphere(GetWorld(), WristExitW, 4.f, 8, FColor::Yellow, false, DebugSweepDrawTime);
     }
 
-    // 마지막 평면에서 1발만 발사(옵션)
+    // 마지막 한 발만 쏘는 경우 — ★Exit 손목★
     if (!bSpawnAtEachPlane && ProjectileClass)
     {
-        const FVector Start_last = StartW1;
-        const FVector Center_last = Start_last + CamFwd * PlaneDistance + U * HalfExtent.Y;
-        const FVector SpawnLoc = Center_last + U * SpawnForwardOffset;
-        SpawnProjectile(SpawnLoc, U);
+        const FVector SpawnLoc = WristExitW + Udir * SpawnForwardOffset;
+        SpawnProjectile(SpawnLoc, Udir);
     }
 
     if (UniqueActors.Num() == 0) return;
 
-    // 6) 근접 데미지 적용
+    // 11) 근접 데미지 일괄 적용
     AController* Inst = GetOwner() ? GetOwner()->GetInstigatorController() : nullptr;
     TSubclassOf<UDamageType> DmgCls = DamageTypeClass;
     for (AActor* A : UniqueActors)
