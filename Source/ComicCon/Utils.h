@@ -164,3 +164,77 @@ bool IsFinite2D(const FVector2f& V)
 {
     return FMath::IsFinite(V.X) && FMath::IsFinite(V.Y);
 }
+
+bool GetPelvis2D(const FPersonPose& P, FVector2f& OutPelvis) {
+    if (!(P.XY.IsValidIndex(COCO_LHIP) && P.XY.IsValidIndex(COCO_RHIP))) return false;
+    const FVector2f L = P.XY[COCO_LHIP];
+    const FVector2f R = P.XY[COCO_RHIP];
+    if (!IsFinite2D(L) || !IsFinite2D(R)) return false;
+    OutPelvis = (L + R) * 0.5f;
+    return true;
+}
+
+bool GetShoulderWidth2D(const FPersonPose& P, double& OutSW) {
+    if (!(P.XY.IsValidIndex(COCO_LSH) && P.XY.IsValidIndex(COCO_RSH))) return false;
+    const FVector2f L = P.XY[COCO_LSH];
+    const FVector2f R = P.XY[COCO_RSH];
+    if (!IsFinite2D(L) || !IsFinite2D(R)) return false;
+    OutSW = FVector2D::Distance(FVector2D(L.X, L.Y), FVector2D(R.X, R.Y));
+    return true;
+}
+
+FVector ToWorldFrom2D(const FVector2f& Pelvis2D, const FVector2f& Joint2D, const FTransform& OwnerXf, float PixelToUU, bool bInvertImageYToUp, float DepthOffsetX)
+{
+    const FVector2f Rel = Joint2D - Pelvis2D;
+    const float YY = Rel.X * PixelToUU;
+    const float ZZ = (bInvertImageYToUp ? -Rel.Y : Rel.Y) * PixelToUU;
+    const FVector Local(DepthOffsetX, YY, ZZ);
+    return OwnerXf.TransformPosition(Local);
+}
+
+
+
+struct FSample { double T; FVector2D C; float ShoulderW; bool Close; };
+
+void ResampleToFixedRate(const TArray<FSample>& In, double Hz, TArray<FSample>& Out)
+{
+    Out.Reset();
+    if (In.Num() < 2) return;
+
+    const double dt = 1.0 / Hz;
+    const double t0 = In[0].T;
+    const double t1 = In.Last().T;
+
+    int j = 1;
+    for (double t = t0; t <= t1 + 1e-9; t += dt)
+    {
+        while (j < In.Num() && In[j].T < t) ++j;
+        if (j >= In.Num()) break;
+
+        const FSample& A = In[j - 1];
+        const FSample& B = In[j];
+        const double denom = FMath::Max(B.T - A.T, 1e-6);
+        const double a = FMath::Clamp((t - A.T) / denom, 0.0, 1.0);
+
+        FSample S;
+        S.T = t;
+        S.C = A.C * (1.0 - a) + B.C * a;
+        S.ShoulderW = (float)FMath::Lerp((double)A.ShoulderW, (double)B.ShoulderW, a);
+        // 보수적: 둘 다 가까워야 true
+        S.Close = (A.Close && B.Close);
+        Out.Add(S);
+    }
+}
+
+void SmoothEMA(TArray<FSample>& A, double Alpha /*0~1*/)
+{
+    if (A.Num() < 2) return;
+    Alpha = FMath::Clamp(Alpha, 0.0, 1.0);
+    for (int i = 1; i < A.Num(); ++i)
+    {
+        A[i].C = (1.0 - Alpha) * A[i - 1].C + Alpha * A[i].C;
+        A[i].ShoulderW = (float)FMath::Lerp((double)A[i - 1].ShoulderW, (double)A[i].ShoulderW, Alpha);
+        // Close는 보수적으로 유지
+        A[i].Close = (A[i].Close && A[i - 1].Close);
+    }
+}

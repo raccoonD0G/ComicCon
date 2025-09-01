@@ -123,7 +123,18 @@ private:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Swing", meta = (AllowPrivateAccess = "true"))
     float StartAlongArmRatio = 0.0f;
 
+// Debug Section
+private:
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Arrow|Plane", meta = (AllowPrivateAccess = "true"))
+    float PlaneHalfThickness = 20.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Arrow|Plane", meta = (AllowPrivateAccess = "true"))
+    bool bDrawDebugPlane = false;
+
 // Swing Section
+private:
+    uint64 LastSwingLoggedMs = 0;
+
 private:
     // === Swing 판별 파라미터 ===
     // 손목-손목 거리가 어깨폭의 이 비율 이하이면 "가깝다"로 간주
@@ -137,9 +148,6 @@ private:
     // 로그 중복 방지 쿨다운(초)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Swing", meta = (AllowPrivateAccess = "true"))
     float SwingCooldownSeconds = 1.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Arrow|Plane", meta = (AllowPrivateAccess = "true"))
-    float SwingPlaneHalfThickness = 20.f;
 
     // 스윙 속도 강화용 파라미터
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Swing|Strict", meta = (AllowPrivateAccess = "true"))
@@ -188,12 +196,29 @@ private:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Arrow|Damage", meta = (AllowPrivateAccess = "true"))
     float SwingDamageAmount = 2.f;        // 데미지 양
 
-private:
-    uint64 LastSwingLoggedMs = 0;
+    // --- VFX: 스윙 아크 트레일 ---
+    UPROPERTY(EditAnywhere, Category = "VFX|SwingArc")
+    bool bSpawnArcTrail = true;
 
+    // 스플라인을 받아 리본을 그리는 Niagara System (User.Spline, User.Lifetime 사용)
+    UPROPERTY(EditAnywhere, Category = "VFX|SwingArc")
+    TObjectPtr<class UNiagaraSystem> ArcTrailSystem;
+
+    UPROPERTY(VisibleAnywhere, Category = "VFX|SwingArc")
+	TObjectPtr<class USplineComponent> SplineComponent;
+
+    UPROPERTY(VisibleAnywhere, Category = "VFX|SwingArc")
+    TObjectPtr<class UNiagaraComponent> NiagaraComponent;
+
+    UPROPERTY(EditAnywhere, Category = "VFX|SwingArc", meta = (ClampMin = "0.05", ClampMax = "5.0"))
+    float ArcTrailLifetime = 1.0f;
+
+private:
     void DetectSwing(); // <- Tick에서 호출
 
     void ApplySwingPlaneSweepDamage(const TArray<const FTimedPoseSnapshot*>& Snaps, TSubclassOf<AActor> ProjectileClass = nullptr, float ProjectileSpeed = 1500.f, float ProjectileLifeSeconds = 3.f, float SpawnForwardOffset = 10.f, bool  bSpawnAtEachPlane = false);
+
+    void SpawnArcTrailFromPoints(const TArray<FVector>& Points);
 
 // Arrow Section
 private:
@@ -224,9 +249,6 @@ private:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Arrow|Plane", meta = (AllowPrivateAccess = "true"))
     TEnumAsByte<ECollisionChannel> PlaneChannel = ECC_Pawn; // 겹침 판정 채널
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Arrow|Plane", meta = (AllowPrivateAccess = "true"))
-    bool bDrawDebugPlane = true;
-
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Arrow|Damage", meta = (AllowPrivateAccess = "true"))
     float ArrowDamageAmount = 2.f;        // 데미지 양
 
@@ -238,31 +260,24 @@ private:
 
     void DetectArrow(); // ← Tick에서 호출
 
-    void ApplyArrowPlaneDamage(const FVector& Start, const FVector& UpperArmDir);
+    void ApplyArrowPlaneDamage(const FVector& ShoulderW, const FVector& WristW);
     
 // Single Swing Section
 private:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Swing", meta = (AllowPrivateAccess = "true"))
     double MinOpenCoverage = 0.55;
 
-    // 속도 임계(어깨폭/초). ↓ 1.50 → 1.20, 0.80 → 0.60 로 완화
+    // 속도 임계(어깨폭/초).
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Swing", meta = (AllowPrivateAccess = "true"))
-    double MinPeakSpeedNorm = 1.20;
+    double MinPeakSpeedNorm = 1.50;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Swing", meta = (AllowPrivateAccess = "true"))
-    double MinAvgSpeedNorm = 0.60;
-
-    // “몸에서 바깥” 조건(어깨폭 단위). ↓ 0.60 → 0.45, 0.80 → 0.60 로 완화
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Swing", meta = (AllowPrivateAccess = "true"))
-    double MinDeltaRadNorm = 0.45;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Swing", meta = (AllowPrivateAccess = "true"))
-    double MinOutwardPathNorm = 0.60;
+    double MinAvgSpeedNorm = 0.80;
 
     // 반전 허용 수/디바운스/데드밴드. ↑ 2 → 3 (조금 더 관대),
     // AxisHoldSeconds 0.06 → 0.05, SignDeadband 0.15 → 0.12
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Swing", meta = (AllowPrivateAccess = "true"))
-    int32 MaxRadialReversals = 3;
+    int32 MaxRadialReversals = 2;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Swing", meta = (AllowPrivateAccess = "true"))
     double AxisHoldSeconds = 0.05;
@@ -278,5 +293,5 @@ private:
 
     void DetectSingleSwing(EMainHand WhichHand);
 
-    void ApplyMainHandMovementPlaneAndFire(const TArray<const FTimedPoseSnapshot*>& Snaps, EMainHand WhichHand, TSubclassOf<AActor> ProjectileClass = nullptr, float ProjectileSpeed = 1500.f, float ProjectileLifeSeconds = 3.f, float SpawnForwardOffset = 10.f, bool  bSpawnAtEachPlane = false);
+    void ApplySingleSwingDamage(const TArray<const FTimedPoseSnapshot*>& Snaps, const TArray<int32>& PersonIdxOf, bool bRightHand, int32 EnterIdx, int32 ExitIdx, TSubclassOf<AActor> ProjectileClass, float ProjectileSpeed, float ProjectileLifeSeconds, bool bSpawnAtEachPlane);
 };

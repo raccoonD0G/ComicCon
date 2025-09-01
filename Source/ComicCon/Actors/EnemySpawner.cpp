@@ -82,9 +82,6 @@ void AEnemySpawner::ScheduleNextSpawn()
 
 void AEnemySpawner::SpawnOnce()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[Spawner] SpawnOnce ENTER (Running=%d, EnemyClass=%s)"),
-		bRunning, *GetNameSafe(EnemyClass));
-
 	if (!bRunning)
 	{
 		return;
