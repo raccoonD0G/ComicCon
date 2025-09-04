@@ -37,14 +37,17 @@ void ASword::BeginPlay()
 
 void ASword::HandleSwingDetected(TArray<FTimedPoseSnapshot> SnapsVal)
 {
-    // 원 함수는 TArray<const FTimedPoseSnapshot*> 이었음 → 값 배열로 대체
     if (!GetWorld() || SnapsVal.Num() < 2) return;
 
-    // 1) 카메라 시선
     FVector CamLoc, CamFwd;
-    if (!SwingClassifierComponent->GetCameraView(CamLoc, CamFwd)) return;
+    if (!SwingClassifierComponent || !SwingClassifierComponent->GetCameraView(CamLoc, CamFwd)) return;
 
-    // ---------- MakePlaneFromSnap 람다 ----------
+    // ★ 원본과 동일: 컴포넌트 오너(보통 플레이어/리그) 기준
+    const FTransform OwnerXf =
+        (SwingClassifierComponent && SwingClassifierComponent->GetOwner())
+        ? SwingClassifierComponent->GetOwner()->GetActorTransform()
+        : GetActorTransform(); // 폴백
+
     auto MakePlaneFromSnap = [&](const FTimedPoseSnapshot* S,
         FVector& OutStartW, FQuat& OutRot, FVector& OutU, FVector& OutDirToWrist)->bool
         {
@@ -53,7 +56,6 @@ void ASword::HandleSwingDetected(TArray<FTimedPoseSnapshot> SnapsVal)
             const FPersonPose& P = S->Poses[PersonIdx];
             if (P.XY.Num() < 17) return false;
 
-            // 기존 어깨→손목 방향/팔축 얻기
             FVector StartW_tmp, DirW, UpperW;
             if (!SwingClassifierComponent->GetExtendedArmWorld(P, StartW_tmp, DirW, UpperW)) return false;
 
@@ -67,14 +69,16 @@ void ASword::HandleSwingDetected(TArray<FTimedPoseSnapshot> SnapsVal)
             auto Map2DToLocal = [&](const FVector2f& Q)->FVector
                 {
                     const FVector2f d = Q - Pelvis2D;
-                    const float YY = d.X * SwingClassifierComponent->GetPixelToUU();
-                    const float ZZ = (SwingClassifierComponent->GetIsInvertImageYToUp() ? -d.Y : d.Y) * SwingClassifierComponent->GetPixelToUU();
+                    const float px2uu = SwingClassifierComponent->GetPixelToUU();
+                    const float YY = d.X * px2uu;
+                    const float ZZ = (SwingClassifierComponent->GetIsInvertImageYToUp() ? -d.Y : d.Y) * px2uu;
                     return FVector(SwingClassifierComponent->GetDepthOffsetX(), YY, ZZ);
                 };
 
+            // ★ 여기! 배우(검) 말고 컴포넌트 오너 기준으로 변환
             auto ToWorld = [&](const FVector& L)->FVector
                 {
-                    return GetActorTransform().TransformPosition(L);
+                    return OwnerXf.TransformPosition(L);
                 };
 
             const int32 LEL = COCO_LEL, REL = COCO_REL, LWR = COCO_LWR, RWR = COCO_RWR;
