@@ -14,7 +14,7 @@ class COMICCON_API AWeapon : public AActor
 	
 public:
 	AWeapon();
-	void Init(AMirroredPlayer* InMirroredPlayer);
+	void SetOwningPlayer(AMirroredPlayer* InMirroredPlayer);
 
 protected:
 	virtual void BeginPlay() override;
@@ -52,4 +52,34 @@ protected:
     // 보이기/숨기기 헬퍼
     void ShowWeapon();
     void HideWeapon();
+
+// Attack Plane Section
+protected:
+	void OverlapPlaneOnce(const FVector& Center, const FQuat& Rot, TSet<AActor*>& UniqueActors, float DebugLifeTime);
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose", meta = (AllowPrivateAccess = "true"))
+    FVector2D PlaneHalfSize = FVector2D(5000.f, 1000.f); // 평면 절반 크기(Y=가로, Z=세로)
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose", meta = (AllowPrivateAccess = "true"))
+    float PlaneHalfThickness = 20.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose", meta = (AllowPrivateAccess = "true"))
+    uint8 bDrawDebugPlane : 1 = true;
+
+    // 보간 평면 최소/최대 개수(엔드포인트 포함)
+    UPROPERTY(EditAnywhere, Category = "Swing")
+    int32 MinInterpPlanes = 2;
+
+    UPROPERTY(EditAnywhere, Category = "Swing")
+    int32 MaxInterpPlanes = 24;
+
+    UPROPERTY()
+    bool bSpawnAtEachPlane = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose", meta = (AllowPrivateAccess = "true"))
+    TEnumAsByte<ECollisionChannel> PlaneChannel = ECC_Pawn; // 겹침 판정 채널
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose", meta = (AllowPrivateAccess = "true"))
+    TSubclassOf<UDamageType> DamageTypeClass;
+
 };

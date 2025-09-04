@@ -28,7 +28,21 @@ public:
     TArray<float> Conf;     // 17
 };
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnPoseBufferChanged, const FVector2f&, Pelvis2D, const FPersonPose&, Pose, const FTransform&, OwnerXform);
+USTRUCT(BlueprintType)
+struct FHandPose
+{
+    GENERATED_BODY()
+
+public:
+    uint16 PersonId = 0xFFFF; // 0xFFFF = unknown
+    uint8  Which = 2;      // 0=left, 1=right, 2=unknown
+    FVector2f Center = FVector2f(NAN, NAN);
+    TArray<FVector2f> XY;     // 21
+    TArray<float>     Conf;   // 21
+};
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(FOnPoseBufferChanged, const FVector2f&, Pelvis2D, const TArray<FPersonPose>&, Poses, float, PixelToUU, const FTransform&, OwnerXform);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(FOnHandBufferChanged, const FVector2f&, Pelvis2D, const TArray<FHandPose>&, Hands, float, PixelToUU, const FTransform&, OwnerXform);
 
 UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
 class COMICCON_API UPoseUdpReceiverComponent : public UActorComponent
@@ -45,6 +59,9 @@ public:
 
 public:
 	const TArray<FPersonPose>& GetLatestPoses() const { return LatestPoses; }
+    const TArray<FHandPose>& GetLatestHands() const { return LatestHands; }
+	FORCEINLINE float GetPixelToUU() const { return PixelToUU; }
+	FORCEINLINE float GetDepthOffsetX() const { return DepthOffsetX; }
     uint64 GetLatestTimestamp() const { return LatestTimestamp; }
 
 private:
@@ -52,14 +69,21 @@ private:
     TArray<uint8> RecvBuffer;
 
     TArray<FPersonPose> LatestPoses;
+    TArray<FHandPose> LatestHands;
+
     uint64 LatestTimestamp = 0;
+
+    float PixelToUU = 2.0f; // 픽셀→언리얼 유닛 스케일
+    float DepthOffsetX = 0.f; // 액터 로컬 X(전방)으로 살짝 띄우기
 
     bool InitSocket(int32 Port = 7777);
     void CloseSocket();
-    bool ReceiveOnce(TArray<FPersonPose>& OutPoses, uint64& OutTsMs);
+    bool ReceiveOnce(TArray<FPersonPose>& OutPoses, TArray<FHandPose>& OutHands, uint64& OutTsMs);
 
 // Weapon Section
 public:
     FOnPoseBufferChanged OnPoseBufferChanged;
+
+    FOnHandBufferChanged OnHandBufferChanged;
 
 };

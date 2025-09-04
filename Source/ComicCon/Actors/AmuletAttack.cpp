@@ -1,10 +1,10 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 
-#include "Actors/AmuletProjectile.h"
+#include "Actors/AmuletAttack.h"
 
 // Sets default values
-AAmuletProjectile::AAmuletProjectile()
+AAmuletAttack::AAmuletAttack()
 {
  	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
@@ -12,14 +12,14 @@ AAmuletProjectile::AAmuletProjectile()
 }
 
 // Called when the game starts or when spawned
-void AAmuletProjectile::BeginPlay()
+void AAmuletAttack::BeginPlay()
 {
 	Super::BeginPlay();
 	
 }
 
 // Called every frame
-void AAmuletProjectile::Tick(float DeltaTime)
+void AAmuletAttack::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 

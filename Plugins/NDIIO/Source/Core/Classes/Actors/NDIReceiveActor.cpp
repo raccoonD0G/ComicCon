@@ -98,7 +98,7 @@ void ANDIReceiveActor::BeginPlay()
 
 		// Construct a temporary audio sound wave to be played by this component
 		this->AudioSoundWave = NewObject<UNDIMediaSoundWave>(GetTransientPackage(), UNDIMediaSoundWave::StaticClass(),
-															 AudioWaveName, Flags);
+															 AudioWaveName, RF_Transient);
 
 		// Ensure the validity of the temporary sound wave object
 		if (IsValid(this->AudioSoundWave))

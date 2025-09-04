@@ -3,7 +3,7 @@
 
 #include "Pawns/ViewPlayer.h"
 #include "Actors/MirroredPlayer.h"
-#include "Components/PoseClassifierComponent.h"
+#include "Components/SingleSwingClassifierComponent.h"
 #include "Actors/Sword.h"
 #include "Actors/Amulet.h"
 #include "MediaPlate.h"
@@ -20,25 +20,28 @@ void AViewPlayer::BeginPlay()
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
     check(MirroredPlayerClass);
-    check(MediaPlateClass);
-    check(MirroredPlayerClass);
+    check(SwordClass);
     check(AmuletClass);
 
-    FTransform MirroredPlayerTF = FTransform(FRotator(), FVector(500, 0, -300), FVector(1, 1, 0.5625));
+    FTransform MirroredPlayerTF = FTransform(FRotator(), FVector(500, 0, -300), FVector(1, 1, 1));
     MirroredPlayer = GetWorld()->SpawnActor<AMirroredPlayer>(MirroredPlayerClass, MirroredPlayerTF, Params);
-
-    FTransform MediaPlateTF = FTransform(FRotator(), FVector(500, 0, -300), FVector(1, 7.2, 7.2));
-    MediaPlate = GetWorld()->SpawnActor<AMediaPlate>(MediaPlateClass, MediaPlateTF, Params);
 
     FTransform SwordTF = FTransform();
     Sword = GetWorld()->SpawnActorDeferred<ASword>(SwordClass, MirroredPlayerTF);
-    Sword->Init(MirroredPlayer);
+    Sword->SetOwningPlayer(MirroredPlayer);
+	Sword->SetOwingSwingClassifierComponent(MirroredPlayer->GetSwingClassifierComponent());
     Sword->FinishSpawning(SwordTF);
 
     FTransform AmuletTF = FTransform();
-    Amulet = GetWorld()->SpawnActorDeferred<AAmulet>(AmuletClass, MirroredPlayerTF);
-    Amulet->Init(MirroredPlayer);
-    Amulet->FinishSpawning(AmuletTF);
+    AmuletLeft = GetWorld()->SpawnActorDeferred<AAmulet>(AmuletClass, MirroredPlayerTF);
+    AmuletLeft->SetOwningPlayer(MirroredPlayer);
+	AmuletLeft->SetOwingSingleSwingClassifierComponent(MirroredPlayer->GetLeftSingleSwingClassifierComponent());
+    AmuletLeft->FinishSpawning(AmuletTF);
+
+	AmuletRight = GetWorld()->SpawnActorDeferred<AAmulet>(AmuletClass, MirroredPlayerTF);
+	AmuletRight->SetOwningPlayer(MirroredPlayer);
+	AmuletRight->SetOwingSingleSwingClassifierComponent(MirroredPlayer->GetRightSingleSwingClassifierComponent());
+	AmuletRight->FinishSpawning(AmuletTF);
 }
 
 void AViewPlayer::Tick(float DeltaSeconds)

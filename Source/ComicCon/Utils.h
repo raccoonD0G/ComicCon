@@ -238,3 +238,17 @@ void SmoothEMA(TArray<FSample>& A, double Alpha /*0~1*/)
         A[i].Close = (A[i].Close && A[i - 1].Close);
     }
 }
+
+FVector MakeLocalFrom2D(const FVector2f& P, const FVector2f& Origin2D, float PixelToUU, float DepthOffsetX)
+{
+    const FVector2f Rel = P - Origin2D;
+    const float Y = Rel.X * PixelToUU;
+    const float Z = -Rel.Y * PixelToUU;
+    return FVector(DepthOffsetX, Y, Z);
+}
+
+uint64 LocalNowMs()
+{
+    if (const UWorld* W = GWorld) return (uint64)(W->GetTimeSeconds() * 1000.0);
+    return (uint64)(FPlatformTime::Seconds() * 1000.0);
+}

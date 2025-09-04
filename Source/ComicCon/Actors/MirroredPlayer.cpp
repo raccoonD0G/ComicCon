@@ -4,6 +4,9 @@
 #include "Actors/MirroredPlayer.h"
 #include "Components/PoseUdpReceiverComponent.h"
 #include "Components/PoseClassifierComponent.h"
+#include "Components/SingleSwingClassifierComponent.h"
+#include "Components/SwingClassifierComponent.h"
+#include "Components/ArrowClassifierComponent.h"
 #include "Utils.h"
 
 AMirroredPlayer::AMirroredPlayer()
@@ -13,7 +16,23 @@ AMirroredPlayer::AMirroredPlayer()
 	RootComponent = SceneComponent;
 
 	PoseReceiver = CreateDefaultSubobject<UPoseUdpReceiverComponent>(TEXT("PoseReceiver"));
+
 	PoseClassifier = CreateDefaultSubobject<UPoseClassifierComponent>(TEXT("PoseClassifier"));
+    PoseClassifier->SetOwningPlayer(this);
+
+	LeftSingleSwingClassifierComponent = CreateDefaultSubobject<USingleSwingClassifierComponent>(TEXT("LeftSingleSwingClassifierComponent"));
+	LeftSingleSwingClassifierComponent->SetOwningPlayer(this);
+	LeftSingleSwingClassifierComponent->SetMainHand(EMainHand::Left);
+
+	RightSingleSwingClassifierComponent = CreateDefaultSubobject<USingleSwingClassifierComponent>(TEXT("RightSingleSwingClassifierComponent"));
+	RightSingleSwingClassifierComponent->SetMainHand(EMainHand::Right);
+    RightSingleSwingClassifierComponent->SetOwningPlayer(this);
+
+	SwingClassifierComponent = CreateDefaultSubobject<USwingClassifierComponent>(TEXT("SwingClassifierComponent"));
+	SwingClassifierComponent->SetOwningPlayer(this);
+
+	ArrowClassifierComponent = CreateDefaultSubobject<UArrowClassifierComponent>(TEXT("ArrowClassifierComponent"));
+	ArrowClassifierComponent->SetOwningPlayer(this);
 }
 
 void AMirroredPlayer::Tick(float DeltaSeconds)

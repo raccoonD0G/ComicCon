@@ -22,20 +22,17 @@ private:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Follow", meta = (AllowPrivateAccess = "ture"))
     TObjectPtr<class AMirroredPlayer> MirroredPlayer;
 
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Follow", meta = (AllowPrivateAccess = "ture"))
-    TObjectPtr<class AMediaPlate> MediaPlate;
-
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Follow", meta = (AllowPrivateAccess = "ture"))
     TSubclassOf<class AMirroredPlayer> MirroredPlayerClass;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Follow", meta = (AllowPrivateAccess = "ture"))
-    TSubclassOf<class AMediaPlate> MediaPlateClass;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Follow", meta = (AllowPrivateAccess = "ture"))
     TObjectPtr<class ASword> Sword;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Follow", meta = (AllowPrivateAccess = "ture"))
-    TObjectPtr<class AAmulet> Amulet;
+    TObjectPtr<class AAmulet> AmuletLeft;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Follow", meta = (AllowPrivateAccess = "ture"))
+    TObjectPtr<class AAmulet> AmuletRight;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Follow", meta = (AllowPrivateAccess = "ture"))
     TSubclassOf<class ASword> SwordClass;

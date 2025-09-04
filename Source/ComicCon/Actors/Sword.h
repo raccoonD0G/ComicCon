@@ -17,49 +17,70 @@ class COMICCON_API ASword : public AWeapon
 protected:
 	virtual void BeginPlay() override;
 
-protected:
+// Attack Section
+public:
+	FORCEINLINE USwingClassifierComponent* GetSwingClassifierComponent() const { return SwingClassifierComponent; }
+    FORCEINLINE void SetOwingSwingClassifierComponent(class USwingClassifierComponent* InSwingClassifierComponent) { SwingClassifierComponent = InSwingClassifierComponent; }
+
+private:
+	TObjectPtr<class USwingClassifierComponent> SwingClassifierComponent;
+
+    UFUNCTION()
+    void HandleSwingDetected(TArray<FTimedPoseSnapshot> SnapsVal);
+
+    // ===== Swing Plane Sweep 파라미터 =====
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack", meta = (AllowPrivateAccess = "true"))
+    float DebugSwingDrawTime = 2.0f;   // 디버그 박스 표시 시간(초)
+
+    UPROPERTY(EditAnywhere, Category = "Attack")
+    TSubclassOf<class ASwingProjectile> SwingProjectileClass;
+
+	UPROPERTY(EditAnywhere, Category = "Attack")
+    TSubclassOf<class ASwingAttack> SwingAttackClass;
+
+    UPROPERTY(EditAnywhere, Category = "Attack")
+    float TiltDegFromBlueTowardYellow = 25.f;
+
+    UPROPERTY()
+    float ProjectileSpeed = 3000.f;
+
+    UPROPERTY()
+    float ProjectileLifeSeconds = 2.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack", meta = (AllowPrivateAccess = "true"))
+    float SwingDamageAmount = 2.f;
+
+    float SpawnForwardOffset = 20.f; // 앞쪽으로 약간 띄워서 스폰
+
+// Pos Section
+private:
+    UPROPERTY()
+    TArray<FHandPose> CachedHands;
+
     UFUNCTION()
     void SetSwordPos(FVector DirWorld, FVector CenterWorld);
 
-    // Receiver Section
-    // === 리시버의 "원시 포즈 입력"을 받는 콜백 ===
     UFUNCTION()
-    void OnSwordPoseInput(const FVector2f& Pelvis2D, const FPersonPose& Pose, const FTransform& OwnerXform);
+    void OnSwordPoseInput(const FVector2f& Pelvis2D, const TArray<FPersonPose>& Poses, float PixelToUU, const FTransform& OwnerXform);
+
+    UFUNCTION()
+    void OnSwordHandsInput(const FVector2f& Pelvis2D, const TArray<FHandPose>& Hands, float PixelToUU, const FTransform& OwnerXform);
+
+    // 유틸: which=0(L) or 1(R) 손을 같은 PersonId에서 찾기
+    bool FindHandCenter(uint16 PersonId, uint8 Which, const FVector2f& FallbackNearTo, FVector2f& OutCenter) const;
 
     // === Sword 내부에서 칼 포즈 계산 ===
-    bool TryComputeSwordPoseFromPose(const FVector2f& Pelvis2D, const FPersonPose& Pose, const FTransform& OwnerXform, FVector& OutDirWorld, FVector& OutStartCenterWorld) const;
+    bool TryComputeSwordPoseFromPose(const FVector2f& Pelvis2D, const FPersonPose& Pose, float PixelToUU, const FTransform& OwnerXform, FVector& OutDirWorld, FVector& OutStartCenterWorld) const;
 
     // 픽셀→로컬 변환(프로젝트에 맞게 조정)
-    FVector MakeLocal(const FVector2f& P, const FVector2f& Pelvis) const;
-
-    // === 튜닝/디버그 파라미터 (이관됨) ===
-    UPROPERTY(EditAnywhere, Category = "Pose|Sword")
-    bool bDrawSwordDebug = true;
-
-    // 손이 가까운 조건: HandDist < HandCloseRatio * ShoulderLen
-    UPROPERTY(EditAnywhere, Category = "Pose|Sword")
-    float HandCloseRatio = 1.0f;
-
-    // 손 박스 여유/최소 크기 (UU)
-    UPROPERTY(EditAnywhere, Category = "Pose|Sword")
-    float BoxPadUU = 4.f;
-
-    UPROPERTY(EditAnywhere, Category = "Pose|Sword")
-    float BoxMinSizeUU = 8.f;
+    FVector MakeLocal(const FVector2f& P, const FVector2f& Pelvis, float PixelToUU) const;
 
     // 손목에서 "앞"(팔꿈치→손목 방향)으로 내미는 비율
     UPROPERTY(EditAnywhere, Category = "Pose|Sword")
     float HandForwardRatio = 0.25f; // 전완 길이의 25%
 
-    // 픽셀→UU 스케일 / 깊이 오프셋 / 이미지 Y 뒤집기(필요시)
-    UPROPERTY(EditAnywhere, Category = "Pose|Units")
-    float PixelToUU = 1.f;
-
     UPROPERTY(EditAnywhere, Category = "Pose|Units")
     float DepthOffsetX = 0.f;
-
-    UPROPERTY(EditAnywhere, Category = "Pose|Units")
-    bool bInvertImageYToUp = true; // 이미지 Y가 아래로 증가하면 true
 
     // 방향 반전(프로젝트 좌표 맞춤)
     UPROPERTY(EditAnywhere, Category = "Pose|Sword")
@@ -72,27 +93,10 @@ protected:
     UPROPERTY(BlueprintReadOnly, Category = "Pose", meta = (AllowPrivateAccess = "true"))
     FVector SwordStartCenterWorld;
 
-    // Sword.h
-    UPROPERTY(EditAnywhere, Category = "Sword|Smoothing")
-    float PosHalfLife = 0.0008f; // 위치 half-life(초)  -> 작을수록 빠르게 붙음
+    // 각도 간격(도). 이 값이 작을수록 더 촘촘히 샘플링
+    UPROPERTY(EditAnywhere, Category = "Swing|Sweep")
+    float DegreesPerInterp = 12.f;
 
-    UPROPERTY(EditAnywhere, Category = "Sword|Smoothing")
-    float RotHalfLife = 0.0006f; // 회전 half-life(초)
-
-    UPROPERTY(EditAnywhere, Category = "Sword|Smoothing")
-    float MaxPosSpeedUUps = 35000.f; // 위치 최대 속도(uu/s) - 순간이동 방지
-
-    UPROPERTY(EditAnywhere, Category = "Sword|Smoothing")
-    float MaxAngularSpeedDegPs = 7200.f; // 회전 최대 속도(도/초)
-
-    UPROPERTY(EditAnywhere, Category = "Sword|Smoothing")
-    float TeleportDistThreshold = 120.f; // 이 거리 이상 튀면 텔레포트로 간주(즉시 스냅)
-
-    UPROPERTY(EditAnywhere, Category = "Sword|Smoothing")
-    float MinDirDotToUpdate = 0.15f; // 너무 불안정한 방향(거의 0벡터) 무시
-
-    // 내부 상태
-    bool bHasSmoothedState = false;
     FVector SmoothedCenter = FVector::ZeroVector;
     FQuat   SmoothedRot = FQuat::Identity;
 

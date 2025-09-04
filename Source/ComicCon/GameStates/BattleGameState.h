@@ -44,7 +44,7 @@ protected:
 
 	/** 남은 시간(초). UI에서 바인딩해서 쓰기 좋게 공개 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Timer")
-	int32 RemainingSeconds = 60;
+	int32 RemainingSeconds = 30;
 
 	/** 타깃 레벨 이름 (끝났을 때 전환) */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Timer")

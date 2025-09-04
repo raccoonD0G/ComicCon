@@ -27,6 +27,10 @@ public:
 public:
 	FORCEINLINE class UPoseUdpReceiverComponent* GetPoseReceiver() { return PoseReceiver; }
 	FORCEINLINE class UPoseClassifierComponent* GetPoseClassifier() { return PoseClassifier; }
+	FORCEINLINE class USingleSwingClassifierComponent* GetLeftSingleSwingClassifierComponent() { return LeftSingleSwingClassifierComponent; }
+	FORCEINLINE class USingleSwingClassifierComponent* GetRightSingleSwingClassifierComponent() { return RightSingleSwingClassifierComponent; }
+	FORCEINLINE class USwingClassifierComponent* GetSwingClassifierComponent() { return SwingClassifierComponent; }
+	FORCEINLINE class UArrowClassifierComponent* GetArrowClassifierComponent() { return ArrowClassifierComponent; }
 
 private:
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "true"))
@@ -37,6 +41,19 @@ private:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<class UPoseClassifierComponent> PoseClassifier;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class USingleSwingClassifierComponent> LeftSingleSwingClassifierComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class USingleSwingClassifierComponent> RightSingleSwingClassifierComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class USwingClassifierComponent> SwingClassifierComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class UArrowClassifierComponent> ArrowClassifierComponent;
+
 
 // Weapon State Section
 public:
@@ -49,7 +66,7 @@ private:
 
 	// HandDistance < Threshold 이면 Sword, 아니면 Amulet
 	UPROPERTY(EditAnywhere, Category = "Weapon")
-	float SwordHandDistanceThreshold = 0.6f;  // 픽셀 기준
+	float SwordHandDistanceThreshold = 1.0f;  // 픽셀 기준
 
 	UPROPERTY(VisibleAnywhere, Category = "Weapon")
 	EWeaponState CurrentWeapon = EWeaponState::Amulet;

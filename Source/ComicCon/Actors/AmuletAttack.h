@@ -4,16 +4,16 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-#include "AmuletProjectile.generated.h"
+#include "AmuletAttack.generated.h"
 
 UCLASS()
-class COMICCON_API AAmuletProjectile : public AActor
+class COMICCON_API AAmuletAttack : public AActor
 {
 	GENERATED_BODY()
 	
 public:	
 	// Sets default values for this actor's properties
-	AAmuletProjectile();
+	AAmuletAttack();
 
 protected:
 	// Called when the game starts or when spawned

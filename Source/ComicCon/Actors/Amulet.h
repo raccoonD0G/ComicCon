@@ -6,9 +6,6 @@
 #include "Actors/Weapon.h"
 #include "Amulet.generated.h"
 
-
-
-
 /**
  * 
  */
@@ -19,18 +16,23 @@ class COMICCON_API AAmulet : public AWeapon
 
 public:
 	AAmulet();
+    void SetOwingSingleSwingClassifierComponent(class USingleSwingClassifierComponent* InSingleSwingClassifierComponent);
 
 protected:
 	virtual void BeginPlay() override;
 
 private:
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
+    TObjectPtr<class USingleSwingClassifierComponent> SingleSwingClassifierComponent;
+
+// Follow Pose Section
+private:
 	// ---- 바인딩 ----
     UFUNCTION()
-    void OnPoseInput(const FVector2f& Pelvis2D, const FPersonPose& Pose, const FTransform& OwnerXform);
+    void OnPoseInput(const FVector2f& Pelvis2D, const TArray<FPersonPose>& Poses, float PixelToUU, const FTransform& OwnerXform);
 
     // ---- 포즈 처리 ----
     void SetAmuletPose(const FVector& CenterWorld);
-    FVector MakeLocal(const FVector2f& P, const FVector2f& Pelvis) const;
 
     // 한쪽 손의 연장 지점 계산: 성공하면 OutPoint 반환
     bool TryComputeExtendedPoint(const FVector2f& Pelvis2D, const FPersonPose& Pose, const FTransform& OwnerXform, bool bRightHand, FVector& OutPoint, float* OutScore = nullptr) const;
@@ -39,17 +41,25 @@ private:
     UPROPERTY(EditAnywhere, Category = "Amulet|Pose")
     float ExtendRatio = 0.25f; // 25%
 
-    // 픽셀 -> UU 변환 및 이미지 좌표 기준
-    UPROPERTY(EditAnywhere, Category = "Amulet|Pose")
-    float PixelToUU = 1.f;
-
-    UPROPERTY(EditAnywhere, Category = "Amulet|Pose")
-    float DepthOffsetX = 0.f;
-
-    UPROPERTY(EditAnywhere, Category = "Amulet|Pose")
-    bool bInvertImageYToUp = true; // 이미지 Y가 아래로 증가하면 true
-
     // (선택) 디버그
     UPROPERTY(EditAnywhere, Category = "Amulet|Debug")
     bool bDrawDebug = false;
+
+// Attack Section
+private:
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Swing", meta = (AllowPrivateAccess = "true"))
+    TSubclassOf<class AAmuletAttack> AmuletAttackClass;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Swing|PlaneSweep", meta = (AllowPrivateAccess = "true"))
+    float DebugSingleSwingDrawTime = 2.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pose|Arrow|Damage", meta = (AllowPrivateAccess = "true"))
+    float SingleSwingDamageAmount = 2.f;
+
+    UPROPERTY()
+    float AttackLifeSeconds = 1.f;
+
+    UFUNCTION()
+    void HandleSingleSwingDetected(TArray<FTimedPoseSnapshot> Snaps, TArray<int32> PersonIdxOf, bool bRightHand, int32 EnterIdx, int32 ExitIdx);
+
 };
